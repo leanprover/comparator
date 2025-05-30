@@ -1,0 +1,7 @@
+name = "Comparator"
+version = "0.1.0"
+defaultTargets = ["comparator"]
+
+[[lean_exe]]
+name = "comparator"
+root = "Main"
