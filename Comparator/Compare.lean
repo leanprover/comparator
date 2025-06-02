@@ -20,27 +20,11 @@ deriving instance BEq for Lean.InductiveVal
 deriving instance BEq for Lean.ConstantInfo
 
 def addWorklist (n : Lean.Name) : CompareM Unit := do
-  if (← get).checked.contains n then
-    return ()
-  else
+  if !(← get).checked.contains n then
     modify fun s => { s with worklist := s.worklist.push n }
 
 def addRelevantConsts (info : Lean.ConstantInfo) : CompareM Unit := do
-  info.type.getUsedConstants.forM addWorklist
-  info.all.forM addWorklist
-  if let some val := info.value? then
-    val.getUsedConstants.forM addWorklist
-
-  match info with
-  | .axiomInfo .. | .quotInfo .. | .defnInfo .. | .thmInfo .. | .opaqueInfo .. => return ()
-  | .inductInfo info =>
-    info.ctors.forM addWorklist
-  | .ctorInfo info =>
-    addWorklist info.induct
-  | .recInfo info =>
-    info.rules.forM fun rule => do
-      addWorklist rule.ctor
-      rule.rhs.getUsedConstants.forM addWorklist
+  runForUsedConsts info addWorklist
 
 partial def loop : CompareM Unit := do
   if (← get).worklist.isEmpty then

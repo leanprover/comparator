@@ -126,6 +126,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
   IO.ofExcept <| Comparator.compareAt challenge solution (← read).theoremName
+  IO.ofExcept <| Comparator.checkAxioms solution (← read).theoremName (← read).legalAxioms
 
 def runCheckers (solutionExport : String) : M Bool := do
   return true
