@@ -1,4 +1,5 @@
 import Lean
+import Comparator
 
 
 /-!
@@ -121,8 +122,10 @@ def safeExport (module : Lean.Name) (decl : Lean.Name) : M String := do
     writablePaths := #[]
   }
 
-def verifyMatch (challengeExport : String) (solutionExport : String) : M Bool := do
-  return true
+def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
+  let challenge ← IO.ofExcept <| Comparator.parse challengeExport
+  let solution ← IO.ofExcept <| Comparator.parse solutionExport
+  IO.ofExcept <| Comparator.compareAt challenge solution (← read).theoremName
 
 def runCheckers (solutionExport : String) : M Bool := do
   return true
@@ -132,8 +135,7 @@ def compareIt : M Unit := do
   let challengeExport ← safeExport `Challenge (← getTheoremName)
   safeLakeBuild `Solution
   let solutionExport ← safeExport `Solution (← getTheoremName)
-  if !(← verifyMatch challengeExport solutionExport) then
-    throw <| .userError "Challenge and Solution environment do not match, this is likely a cheater attempt"
+  verifyMatch challengeExport solutionExport
 
   if !(← runCheckers solutionExport) then
     throw <| .userError "Checker failed to verify Solution"
@@ -151,5 +153,5 @@ def M.run (x : M α) (args : List String) : IO α := do
     lake := "lake"
   }
 
-def main (args : List String) : IO Unit :=
+def main (args : List String) : IO Unit := do
   M.run compareIt args
