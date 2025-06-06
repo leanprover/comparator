@@ -1,96 +1,66 @@
+/-
+Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Henrik Böving
+-/
 import Lean
 import Comparator
 
-
-/-!
-Two files:
-- Challenge.lean: Containing theorem called `challenge` with `sorry`
-- Solution.lean: Containing theorem called `challenge` with proof
-
-1. Obtain Challenge.olean + Solution.olean as well as possible dependency oleans in a way that
-   doesn't touch the system or each other (???)
-2. Serialize both olean closures into export format with (`lean4export`)[https://github.com/leanprover/lean4export].
-   As olean files are potentially dangerous this process should run in isolation. (???)
-3. Load both closures into verifier process
-4. Check that they match sufficiently:
-  - theorem statements of `challenge` as well as all used constants match
-  - collect axioms from proof of `challenge` and:
-    - make sure no blacklisted ones are contained
-    - make sure all used whitelisted ones match between solution and challenge environment
-5. Run 1 or more kernels on solution olean:
-  - lean4checker
-  - nanoda
-  - lean4lean
-  - ??
-
-isolation command:
-landrun --rox / --rox /usr --rw /dev --rox /home/lean/.elan --rox /home/lean/actions-runner/_work --rox /home/lean/.cache/mathlib/ --rw pr-branch/.lake/ --env PATH --env HOME --env GITHUB_OUTPUT -- bash -euxo pipefail {0}
-
-
-Assumptions:
-1. The entire environment and project apart from the content of `Challenge.lean` is controlled by a
-   trustworthy party
--/
+namespace Comparator
 
 structure Context where
   projectDir : System.FilePath
-  theoremName : Lean.Name
+  challengeModule : Lean.Name
+  solutionModule : Lean.Name
+  theoremNames : Array Lean.Name
   legalAxioms : Array Lean.Name
-  lean4Export : System.FilePath
-  landrun : System.FilePath
-  lake : System.FilePath
 
 abbrev M := ReaderT Context IO
 
 structure LandrunArgs where
   cmd : String
   args : Array String
-  envPass : Array String := #["PATH", "HOME"]
+  envPass : Array String
   envOverride : Array (String × Option String) := #[]
   writablePaths : Array System.FilePath
 
 @[inline]
-def getTheoremName : M Lean.Name := do return (← read).theoremName
-
-@[inline]
-def getLake : M System.FilePath := do return (← read).lake
-
-@[inline]
-def getLean4Export : M System.FilePath := do return (← read).lean4Export
-
-@[inline]
-def getLandrun : M System.FilePath := do return (← read).landrun
+def getTheoremNames : M (Array Lean.Name) := do return (← read).theoremNames
 
 @[inline]
 def getProjectDir : M System.FilePath := do return (← read).projectDir
 
+@[inline]
+def getChallengeModule : M Lean.Name := do return (← read).challengeModule
+
+@[inline]
+def getSolutionModule : M Lean.Name := do return (← read).solutionModule
+
 def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
-  -- TODO: temporary best-effort
   let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
   let base := env.foldl (init := base) (fun acc env => acc ++ #["--env", env])
   writablePaths.foldl (init := base) (fun acc path => acc ++ #["--rwx", path.toString])
 
 def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
-  let args := landrunArgs spawnArgs.writablePaths spawnArgs.envPass ++ #[spawnArgs.cmd] ++ spawnArgs.args
-  let landrun ← getLandrun
-  let proc ← IO.Process.spawn {
-    cmd := landrun.toString,
+  let args :=
+    landrunArgs spawnArgs.writablePaths spawnArgs.envPass ++
+    #[spawnArgs.cmd] ++
+    spawnArgs.args
+  IO.Process.run {
+    cmd := "landrun",
     args,
     stdout := .piped,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
   }
-  let ret ← proc.wait
-  if ret != 0 then
-    throw <| .userError s!"Child exited with {ret}"
-  else
-    proc.stdout.readToEnd
 
 def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
-  let args := landrunArgs spawnArgs.writablePaths spawnArgs.envPass ++ #[spawnArgs.cmd] ++ spawnArgs.args
-  let landrun ← getLandrun
+  let args :=
+    landrunArgs spawnArgs.writablePaths spawnArgs.envPass ++
+    #[spawnArgs.cmd] ++
+    spawnArgs.args
   let proc ← IO.Process.spawn {
-    cmd := landrun.toString,
+    cmd := "landrun",
     args,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
@@ -101,58 +71,81 @@ def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
 
 def safeLakeBuild (target : Lean.Name) : M Unit := do
   IO.println s!"Building {target}"
-  let lake ← getLake
   let dotLakeDir := (← getProjectDir) / ".lake"
   runSandBoxed {
-    cmd := lake.toString,
+    cmd := "lake",
     args := #["build", target.toString (escape := false)],
     envPass := #["PATH", "HOME", "LEAN_ABORT_ON_PANIC"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
     writablePaths := #[dotLakeDir]
   }
 
-def safeExport (module : Lean.Name) (decl : Lean.Name) : M String := do
-  IO.println s!"Exporting {decl} from {module}"
-  let lean4export ← getLean4Export
+def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
+  IO.println s!"Exporting {decls} from {module}"
+  let baseArgs := #[module.toString (escape := false), "--"]
+  let args := decls.foldl (·.push <| ·.toString (escape := false)) baseArgs
   runSandBoxedWithStdout {
-    cmd := lean4export.toString,
-    args := #[module.toString (escape := false), "--", decl.toString (escape := false)]
+    cmd := "lean4export",
+    args := args,
     envPass := #["PATH", "HOME", "LEAN_PATH", "LEAN_ABORT_ON_PANIC"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
     writablePaths := #[]
   }
 
+def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
+  IO.println "Running kernel on solution."
+  let mut env ← Lean.mkEmptyEnvironment
+  let mut constMap := solution.constMap
+  -- Lean's kernel interprets just the addition of `Quot as adding all of these so adding them
+  -- multiple times leads to errors.
+  constMap := constMap.erase `Quot.mk |>.erase `Quot.lift |>.erase `Quot.ind
+  discard <| env.replay constMap
+  IO.println "Solution valid."
+
 def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
-  IO.ofExcept <| Comparator.compareAt challenge solution (← read).theoremName
-  IO.ofExcept <| Comparator.checkAxioms solution (← read).theoremName (← read).legalAxioms
-
-def runCheckers (solutionExport : String) : M Bool := do
-  return true
+  let theoremNames ← getTheoremNames
+  IO.ofExcept <| Comparator.compareAt challenge solution theoremNames
+  IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← read).legalAxioms
+  runKernel solution
 
 def compareIt : M Unit := do
-  safeLakeBuild `Challenge
-  let challengeExport ← safeExport `Challenge (← getTheoremName)
-  safeLakeBuild `Solution
-  let solutionExport ← safeExport `Solution (← getTheoremName)
-  verifyMatch challengeExport solutionExport
+  let theoremNames ← getTheoremNames
+  let challengeModule ← getChallengeModule
+  safeLakeBuild challengeModule
+  let challengeExport ← safeExport challengeModule theoremNames
 
-  if !(← runCheckers solutionExport) then
-    throw <| .userError "Checker failed to verify Solution"
+  let solutionModule ← getSolutionModule
+  safeLakeBuild solutionModule
+  let solutionExport ← safeExport solutionModule theoremNames
+
+  verifyMatch challengeExport solutionExport
 
   IO.println "Your solution is okay!"
 
-def M.run (x : M α) (args : List String) : IO α := do
+structure Config where
+  challenge_module : String
+  solution_module : String
+  theorem_names : Array String
+  permitted_axioms : Array String
+  deriving Lean.FromJson, Lean.ToJson, Repr
+
+def M.run (x : M α) (cfg : Config) : IO α := do
   let cwd ← IO.Process.getCurrentDir
   ReaderT.run x {
     projectDir := cwd
-    theoremName := `todo,
-    legalAxioms := #[],
-    lean4Export := cwd.parent.get! / "lean4export" / ".lake" / "build" / "bin" / "lean4export",
-    landrun := cwd.parent.get! / "landrun" / "landrun",
-    lake := "lake"
+    challengeModule := cfg.challenge_module.toName,
+    solutionModule := cfg.solution_module.toName,
+    theoremNames := cfg.theorem_names.map String.toName,
+    legalAxioms := cfg.permitted_axioms.map String.toName,
   }
 
+end Comparator
+
 def main (args : List String) : IO Unit := do
-  M.run compareIt args
+  let some (configPath : String) := args[0]?
+    | throw <| .userError "Expected config file path as first argument."
+  let content ← IO.FS.readFile configPath
+  let config ← IO.ofExcept <| Lean.FromJson.fromJson? <| ← IO.ofExcept <| Lean.Json.parse content
+  Comparator.M.run Comparator.compareIt config

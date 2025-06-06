@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Henrik Böving
+-/
 import Comparator.ExportedEnv
 
 namespace Comparator
@@ -43,13 +48,16 @@ where
 
 end Axioms
 
-def checkAxioms (solution : ExportedEnv) (target : Lean.Name) (legal : Array Lean.Name) :
+def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
     Except String Unit := do
-  let some solutionConst := solution.constMap[target]?
-    | throw "Const not found in solution: '{target}'"
-  let .thmInfo solutionConst := solutionConst
-    | throw s!"Solution constant is not a theorem: '{target}'"
-  let worklist := solutionConst.value.getUsedConstants
+  let mut worklist := #[]
+  for target in targets do
+    let some solutionConst := solution.constMap[target]?
+      | throw s!"Const not found in solution: '{target}'"
+    let .thmInfo solutionConst := solutionConst
+      | throw s!"Solution constant is not a theorem: '{target}'"
+    worklist := worklist ++ solutionConst.value.getUsedConstants
+
   let legalAxioms := Std.HashSet.ofArray legal
   Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
 

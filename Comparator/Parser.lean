@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Henrik Böving
+-/
 import Comparator.ExportedEnv
 
 namespace Comparator
@@ -512,7 +517,7 @@ end Parser
 
 def parse (input : String) : Except String ExportedEnv := do
   let (_, state) ← Parser.M.run Parser.parseFile input
-  let { nameMap, levelMap, exprMap, recursorRuleMap, constMap, constOrder, .. } := state
+  let { constMap, constOrder, .. } := state
   return {
     constMap,
     constOrder,

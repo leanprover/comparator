@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Henrik Böving
+-/
 import Comparator.ExportedEnv
 
 namespace Comparator
@@ -49,22 +54,27 @@ partial def loop : CompareM Unit := do
 
 end Compare
 
-def compareAt (challenge solution : ExportedEnv) (target : Lean.Name) : Except String Unit := do
-  let some challengeConst := challenge.constMap[target]?
-    | throw "Const not found in challenge: '{target}'"
-  let some solutionConst := solution.constMap[target]?
-    | throw "Const not found in solution: '{target}'"
+def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
+    Except String Unit := do
+  let mut worklist := #[]
+  for target in targets do
+    let some challengeConst := challenge.constMap[target]?
+      | throw "Const not found in challenge: '{target}'"
 
-  let .thmInfo challengeConst := challengeConst
-    | throw s!"Challenge constant is not a theorem: '{target}'"
+    let some solutionConst := solution.constMap[target]?
+      | throw "Const not found in solution: '{target}'"
 
-  let .thmInfo solutionConst := solutionConst
-    | throw s!"Solution constant is not a theorem: '{target}'"
+    let .thmInfo challengeConst := challengeConst
+      | throw s!"Challenge constant is not a theorem: '{target}'"
 
-  if challengeConst.toConstantVal != solutionConst.toConstantVal then
-    throw s!"Challenge and solution theorem statement do not match: '{target}'"
+    let .thmInfo solutionConst := solutionConst
+      | throw s!"Solution constant is not a theorem: '{target}'"
 
-  let worklist := challengeConst.type.getUsedConstants
+    if challengeConst.toConstantVal != solutionConst.toConstantVal then
+      throw s!"Challenge and solution theorem statement do not match: '{target}'"
+
+    worklist := worklist ++ challengeConst.type.getUsedConstants
+
   Compare.loop.run { challenge, solution } |>.run'  { worklist, checked := {} }
 
 end Comparator
