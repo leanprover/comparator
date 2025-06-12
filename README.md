@@ -16,8 +16,8 @@ The comparator is configured through a JSON file:
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
 }
 ```
-Where `Solution.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
-and `Challenge.lean` is provided by a party trying to convince you that they have proven `todo1` by
+Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
+and `Solution.lean` is provided by a party trying to convince you that they have proven `todo1` by
 writing out the same theorem but with a proper proof attached.
 
 Given the following assumptions:
