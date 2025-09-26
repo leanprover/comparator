@@ -1,4 +1,4 @@
-**IMPORTANT** This is beta quality software, do not yet use in production
+**IMPORTANT** While much care has been put into making the program robust against malicious inputs, this has not been independently test yet.
 
 # Comparator
 Comparator is a trustworthy judge for Lean proofs. It relies having an existing Lean installation as
