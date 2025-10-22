@@ -8,3 +8,8 @@ name = "Comparator"
 [[lean_exe]]
 name = "comparator"
 root = "Main"
+
+[[require]]
+scope = "leanprover"
+name = "Lean4Checker"
+rev = "v4.25.0-rc2"

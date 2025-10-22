@@ -1,5 +1,15 @@
 {"version": "1.1.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/leanprover/lean4checker",
+   "type": "git",
+   "subDir": null,
+   "scope": "leanprover",
+   "rev": "46cd0c3a01903aac90478ce6b3a9160440cd97ad",
+   "name": "Lean4Checker",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "v4.25.0-rc2",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
  "name": "Comparator",
  "lakeDir": ".lake"}
