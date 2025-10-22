@@ -59,18 +59,19 @@ def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
   let mut worklist := #[]
   for target in targets do
     let some challengeConst := challenge.constMap[target]?
-      | throw "Const not found in challenge: '{target}'"
+      | throw s!"Const not found in challenge: '{target}'"
 
     let some solutionConst := solution.constMap[target]?
-      | throw "Const not found in solution: '{target}'"
+      | throw s!"Const not found in solution: '{target}'"
 
-    let .thmInfo challengeConst := challengeConst
-      | throw s!"Challenge constant is not a theorem: '{target}'"
 
-    let .thmInfo solutionConst := solutionConst
-      | throw s!"Solution constant is not a theorem: '{target}'"
+    let (challengeConst, solutionConst) ←
+      match challengeConst, solutionConst with
+      | .thmInfo cc, .thmInfo sc
+      | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
+      | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
 
-    if challengeConst.toConstantVal != solutionConst.toConstantVal then
+    if challengeConst != solutionConst then
       throw s!"Challenge and solution theorem statement do not match: '{target}'"
 
     worklist := worklist ++ challengeConst.type.getUsedConstants

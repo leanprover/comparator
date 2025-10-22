@@ -37,6 +37,9 @@ def getChallengeModule : M Lean.Name := do return (← read).challengeModule
 @[inline]
 def getSolutionModule : M Lean.Name := do return (← read).solutionModule
 
+@[inline]
+def getLegalAxioms : M (Array Lean.Name) := do return (← read).legalAxioms
+
 def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
   let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
   let base := env.foldl (init := base) (fun acc env => acc ++ #["--env", env])
@@ -107,19 +110,20 @@ def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit :=
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
   let theoremNames ← getTheoremNames
-  IO.ofExcept <| Comparator.compareAt challenge solution theoremNames
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← read).legalAxioms
+  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
+  IO.ofExcept <| Comparator.compareAt challenge solution targets
+  IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← getLegalAxioms)
   runKernel solution
 
 def compareIt : M Unit := do
-  let theoremNames ← getTheoremNames
   let challengeModule ← getChallengeModule
+  let exportTargets := (← getTheoremNames) ++ (← getLegalAxioms)
   safeLakeBuild challengeModule
-  let challengeExport ← safeExport challengeModule theoremNames
+  let challengeExport ← safeExport challengeModule exportTargets
 
   let solutionModule ← getSolutionModule
   safeLakeBuild solutionModule
-  let solutionExport ← safeExport solutionModule theoremNames
+  let solutionExport ← safeExport solutionModule exportTargets
 
   verifyMatch challengeExport solutionExport
 
