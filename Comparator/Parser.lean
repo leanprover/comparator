@@ -197,7 +197,7 @@ def parseHints : LineM Lean.ReducibilityHints := do
   | "A" => return .abbrev
   | "R" =>
     let n ← parseDigits
-    return .regular n
+    return .regular n.toUInt32
   | _ => throw s!"Invalid hint: '{tok}'"
 
 def parseDef : LineM Unit :=  do
@@ -414,11 +414,11 @@ def parseExpr (idx : Nat) (tok : String) : LineM Unit := do
 
     let u8 : LineM UInt8 := do
       let next ← LineM.next!
-      if next.length != 2 then
+      if next.utf8ByteSize != 2 then
         throw s!"Invalid hex part of string lit: '{next}'"
 
-      let d1 ← hexToU8 <| next.get! ⟨0⟩
-      let d2 ← hexToU8 <| next.get! ⟨1⟩
+      let d1 ← hexToU8 <| String.Pos.Raw.mk 0 |>.get next
+      let d2 ← hexToU8 <| String.Pos.Raw.mk 1 |>.get next
       return (d1 <<< 4) ||| d2
     let bytes ← parseTrailing u8
     let some str := String.fromUTF8? (.mk bytes)
@@ -466,8 +466,8 @@ def parseName (idx : Nat) (tok : String) : LineM Unit := do
 def parsePrimitive (idx : String) : LineM Unit := do
   let some idx := String.toNat? idx | throw s!"Invalid index '{idx}'"
   let tok ← LineM.next!
-  if tok.get ⟨0⟩ != '#' then throw s!"Invalid primitive kind '{tok}'"
-  match tok.get ⟨1⟩ with
+  if (String.Pos.Raw.mk 0).get! tok != '#' then throw s!"Invalid primitive kind '{tok}'"
+  match (String.Pos.Raw.mk 1).get! tok with
   | 'N' => parseName idx tok
   | 'U' => parseUniverse idx tok
   | 'E' => parseExpr idx tok
