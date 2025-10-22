@@ -26,14 +26,14 @@ partial def loop : AxiomsM Unit := do
   let target ← modifyGet fun s => (s.worklist.back!, { s with worklist := s.worklist.pop })
   if (← get).checked.contains target then
     loop
+  else
+    let some info := (← read).solution.constMap[target]?
+      | throw s!"Constant not found in solution '{target}'"
 
-  let some info := (← read).solution.constMap[target]?
-    | throw s!"Constant not found in solution '{target}'"
+    runForUsedConsts info validateConst
 
-  runForUsedConsts info validateConst
-
-  modify fun s => { s with checked := s.checked.insert target }
-  loop
+    modify fun s => { s with checked := s.checked.insert target }
+    loop
 where
   validateConst (n : Lean.Name) : AxiomsM Unit := do
     let some info := (← read).solution.constMap[n]?

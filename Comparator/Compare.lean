@@ -38,19 +38,19 @@ partial def loop : CompareM Unit := do
   let target ← modifyGet fun s => (s.worklist.back!, { s with worklist := s.worklist.pop })
   if (← get).checked.contains target then
     loop
+  else
+    let some challengeConst := (← read).challenge.constMap[target]?
+      | throw s!"Const not found in challenge '{target}'"
+    let some solutionConst := (← read).solution.constMap[target]?
+      | throw s!"Const not found in target '{target}'"
 
-  let some challengeConst := (← read).challenge.constMap[target]?
-    | throw s!"Const not found in challenge '{target}'"
-  let some solutionConst := (← read).solution.constMap[target]?
-    | throw s!"Const not found in target '{target}'"
+    if challengeConst != solutionConst then
+      throw s!"Const does not match between challenge and target '{target}'"
 
-  if challengeConst != solutionConst then
-    throw s!"Const does not match between challenge and target '{target}'"
+    addRelevantConsts solutionConst
 
-  addRelevantConsts solutionConst
-
-  modify fun s => { s with checked := s.checked.insert target }
-  loop
+    modify fun s => { s with checked := s.checked.insert target }
+    loop
 
 end Compare
 
@@ -75,6 +75,6 @@ def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
 
     worklist := worklist ++ challengeConst.type.getUsedConstants
 
-  Compare.loop.run { challenge, solution } |>.run'  { worklist, checked := {} }
+  Compare.loop.run { challenge, solution } |>.run' { worklist, checked := {} }
 
 end Comparator
