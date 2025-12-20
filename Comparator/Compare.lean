@@ -80,7 +80,7 @@ def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
     let (challengeConst, solutionConst) ←
       match challengeConst, solutionConst with
       | .thmInfo cc, .thmInfo sc
-      | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
+      | .axiomInfo cc, .axiomInfo sc
       | .defnInfo cc, .defnInfo sc
       | .opaqueInfo cc, .opaqueInfo sc
       | .quotInfo cc, .quotInfo sc
