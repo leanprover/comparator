@@ -68,7 +68,7 @@ def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Ar
       | throw s!"Const not found in solution: '{target}'"
     let info := match solutionConst with
       | .thmInfo info
-      | .defnInfo info => info.value.getUsedConstants
+      | .defnInfo info => info
       | _ => throw s!"Solution constant is a {constantKindName solutionConst} which is not a theorem or def: '{target}'"
     worklist := worklist ++ info.value.getUsedConstants
 
