@@ -54,6 +54,18 @@ partial def loop : CompareM Unit := do
 
 end Compare
 
+/-- Get a human-readable name for the kind of constant -/
+def constantKindName (info : Lean.ConstantInfo) : String :=
+  match info with
+  | .axiomInfo .. => "axiom"
+  | .defnInfo .. => "def"
+  | .thmInfo .. => "theorem"
+  | .opaqueInfo .. => "opaque"
+  | .quotInfo .. => "quot"
+  | .inductInfo .. => "inductive"
+  | .ctorInfo .. => "constructor"
+  | .recInfo .. => "recursor"
+
 def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
     Except String Unit := do
   let mut worklist := #[]
@@ -68,8 +80,14 @@ def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
     let (challengeConst, solutionConst) ←
       match challengeConst, solutionConst with
       | .thmInfo cc, .thmInfo sc
-      | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
+      | .axiomInfo cc, .axiomInfo sc
+      | .defnInfo cc, .defnInfo sc
+      | .opaqueInfo cc, .opaqueInfo sc
+      | .quotInfo cc, .quotInfo sc
+      | .inductInfo cc, .inductInfo sc
+      | .ctorInfo cc, .ctorInfo sc
+      | .recInfo cc, .recInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
+      | c, s => throw s!"Challenge and solution constant kind don't match: '{target}' (challenge: {constantKindName c}, solution: {constantKindName s})"
 
     if challengeConst != solutionConst then
       throw s!"Challenge and solution theorem statement do not match: '{target}'"
