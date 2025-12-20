@@ -82,10 +82,10 @@ def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
       | .thmInfo cc, .thmInfo sc
       | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
       | .defnInfo cc, .defnInfo sc
-      | .opaqueInfo cc, .opaqueInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | .quotInfo cc, .quotInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | .inductInfo cc, .inductInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | .ctorInfo cc, .ctorInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
+      | .opaqueInfo cc, .opaqueInfo sc
+      | .quotInfo cc, .quotInfo sc
+      | .inductInfo cc, .inductInfo sc
+      | .ctorInfo cc, .ctorInfo sc
       | .recInfo cc, .recInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
       | c, s => throw s!"Challenge and solution constant kind don't match: '{target}' (challenge: {constantKindName c}, solution: {constantKindName s})"
 
