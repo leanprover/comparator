@@ -66,11 +66,11 @@ def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Ar
   for target in targets do
     let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
-    let info := match solutionConst with
+    let usedConstants ← match solutionConst with
       | .thmInfo info
-      | .defnInfo info => info
+      | .defnInfo info => pure info.value.getUsedConstants
       | _ => throw s!"Solution constant is a {constantKindName solutionConst} which is not a theorem or def: '{target}'"
-    worklist := worklist ++ info.value.getUsedConstants
+    worklist := worklist ++ usedConstants
 
   let legalAxioms := Std.HashSet.ofArray legal
   Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
