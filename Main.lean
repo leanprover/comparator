@@ -109,10 +109,8 @@ def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
 def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
-  let theoremNames ← getTheoremNames
-  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← getLegalAxioms)
+  IO.ofExcept <| Comparator.compareAt challenge solution (← getTheoremNames) (← getLegalAxioms)
+  IO.ofExcept <| Comparator.checkAxioms solution (← getTheoremNames) (← getLegalAxioms)
   runKernel solution
 
 def compareIt : M Unit := do
