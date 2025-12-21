@@ -16,7 +16,7 @@ structure State where
   recursorRuleMap : Std.HashMap Nat Lean.RecursorRule
   constMap : Std.HashMap Lean.Name Lean.ConstantInfo
   constOrder : Array Lean.Name
-  input : String.Iterator
+  input : String.Legacy.Iterator
   deriving Inhabited
 
 abbrev M := StateT State <| Except String
@@ -29,7 +29,7 @@ def M.run (x : M α) (input : String) : Except String (α × State) := do
     recursorRuleMap := {}
     constMap := {}
     constOrder := #[],
-    input := input.iter
+    input := String.Legacy.iter input
   }
   StateT.run x initial
 

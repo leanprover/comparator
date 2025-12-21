@@ -12,4 +12,4 @@ root = "Main"
 [[require]]
 scope = "leanprover"
 name = "Lean4Checker"
-rev = "v4.25.0-rc2"
+rev = "b7398199245524275543dec6113229c9bb4902e5"
