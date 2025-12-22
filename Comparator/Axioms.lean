@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
 import Comparator.ExportedEnv
+import Comparator.Utils
 
 namespace Comparator
 
@@ -11,6 +12,8 @@ namespace Axioms
 
 structure Context where
   solution : ExportedEnv
+  allowPartial : Bool
+  targetNames : Std.HashSet Lean.Name
   legalAxioms : Std.HashSet Lean.Name
 
 structure State where
@@ -18,6 +21,10 @@ structure State where
   checked : Std.HashSet Lean.Name
 
 abbrev AxiomsM := ReaderT Context <| StateT State <| Except String
+
+def addWorklist (n : Lean.Name) : AxiomsM Unit := do
+  if !(← get).checked.contains n then
+    modify fun s => { s with worklist := s.worklist.push n }
 
 partial def loop : AxiomsM Unit := do
   if (← get).worklist.isEmpty then
@@ -30,35 +37,37 @@ partial def loop : AxiomsM Unit := do
     let some info := (← read).solution.constMap[target]?
       | throw s!"Constant not found in solution '{target}'"
 
-    runForUsedConsts info validateConst
+    if let .axiomInfo info := info then
+      if !(← read).legalAxioms.contains info.name then
+        throw s!"Illegal axiom detected: '{target}'"
+
+    if (← read).targetNames.contains target then
+      if info.isUnsafe then throw s!"Solution constant is unsafe: '{target}'"
+      if info.isPartial && !(← read).allowPartial then throw s!"Solution constant is partial: '{target}'"
+
+    runForUsedConsts info addWorklist
 
     modify fun s => { s with checked := s.checked.insert target }
     loop
-where
-  validateConst (n : Lean.Name) : AxiomsM Unit := do
-    let some info := (← read).solution.constMap[n]?
-      | throw s!"Constant not found in solution '{n}'"
-
-    if let .axiomInfo info := info then
-      if !(← read).legalAxioms.contains info.name then
-        throw s!"Illegal axiom detected: '{n}'"
-
-    if !(← get).checked.contains n then
-      modify fun s => { s with worklist := s.worklist.push n }
 
 end Axioms
 
-def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
+def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) (allowPartial : Bool) :
     Except String Unit := do
   let mut worklist := #[]
-  for target in targets do
+  let legalAxioms := Std.HashSet.ofArray legal
+  let targetNames := Std.HashSet.ofArray targets
+
+  for target in legal do
     let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
-    let .thmInfo solutionConst := solutionConst
-      | throw s!"Solution constant is not a theorem: '{target}'"
-    worklist := worklist ++ solutionConst.value.getUsedConstants
 
-  let legalAxioms := Std.HashSet.ofArray legal
-  Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
+    match solutionConst with
+    | .thmInfo _ | .axiomInfo _ => pure ()
+    | _ => throw s!"Solution must not instantiate allowed axioms with informative constants ({Utils.constantKindName solutionConst} forbidden): '{target}'"
 
+  let prog := do
+    targets.forM Axioms.addWorklist
+    Axioms.loop
+  prog.run { solution, allowPartial, legalAxioms, targetNames } |>.run' { worklist, checked := {} }
 end Comparator

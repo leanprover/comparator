@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
 import Comparator.ExportedEnv
+import Comparator.Utils
 
 namespace Comparator
 
@@ -12,6 +13,7 @@ namespace Compare
 structure Context where
   challenge : ExportedEnv
   solution : ExportedEnv
+  targetNames : Std.HashSet Lean.Name
 
 structure State where
   worklist : Array Lean.Name
@@ -28,9 +30,6 @@ def addWorklist (n : Lean.Name) : CompareM Unit := do
   if !(← get).checked.contains n then
     modify fun s => { s with worklist := s.worklist.push n }
 
-def addRelevantConsts (info : Lean.ConstantInfo) : CompareM Unit := do
-  runForUsedConsts info addWorklist
-
 partial def loop : CompareM Unit := do
   if (← get).worklist.isEmpty then
     return ()
@@ -39,43 +38,42 @@ partial def loop : CompareM Unit := do
   if (← get).checked.contains target then
     loop
   else
-    let some challengeConst := (← read).challenge.constMap[target]?
-      | throw s!"Const not found in challenge '{target}'"
     let some solutionConst := (← read).solution.constMap[target]?
       | throw s!"Const not found in target '{target}'"
 
-    if challengeConst != solutionConst then
-      throw s!"Const does not match between challenge and target '{target}'"
+    if let some challengeConst := (← read).challenge.constMap[target]? then
+      -- Solution constant values don't need to match, since the challenges are expected to be axioms
+      if (← read).targetNames.contains target then
+        if challengeConst.toConstantVal != solutionConst.toConstantVal then
+          throw s!"Challenge and solution types do not match: '{target}'"
+      else
+        if challengeConst != solutionConst then
+          throw s!"Const does not match between challenge and target '{target}'"
 
-    addRelevantConsts solutionConst
+    runForUsedConsts solutionConst addWorklist
 
     modify fun s => { s with checked := s.checked.insert target }
     loop
 
 end Compare
 
-def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
+def compareAt (challenge solution : ExportedEnv) (targets axioms : Array Lean.Name) :
     Except String Unit := do
-  let mut worklist := #[]
-  for target in targets do
+  let mut worklist := targets
+  let targetNames := Std.HashSet.ofArray targets
+  let targetsAndAxioms := targets ++ axioms
+
+  for target in targetsAndAxioms do
     let some challengeConst := challenge.constMap[target]?
       | throw s!"Const not found in challenge: '{target}'"
 
-    let some solutionConst := solution.constMap[target]?
-      | throw s!"Const not found in solution: '{target}'"
+    match challengeConst with
+    | .thmInfo _ | .axiomInfo _ => pure ()
+    | _ => throw s!"Challenge must be theorem or axiom not {Utils.constantKindName challengeConst}: '{target}'"
 
-
-    let (challengeConst, solutionConst) ←
-      match challengeConst, solutionConst with
-      | .thmInfo cc, .thmInfo sc
-      | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
-
-    if challengeConst != solutionConst then
-      throw s!"Challenge and solution theorem statement do not match: '{target}'"
-
-    worklist := worklist ++ challengeConst.type.getUsedConstants
-
-  Compare.loop.run { challenge, solution } |>.run' { worklist, checked := {} }
+  let prog := do
+    targetsAndAxioms.forM Compare.addWorklist
+    Compare.loop
+  prog.run { challenge, solution, targetNames } |>.run' { worklist, checked := {} }
 
 end Comparator

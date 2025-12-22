@@ -15,6 +15,7 @@ structure Context where
   solutionModule : Lean.Name
   theoremNames : Array Lean.Name
   legalAxioms : Array Lean.Name
+  allowPartial : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -39,6 +40,9 @@ def getSolutionModule : M Lean.Name := do return (← read).solutionModule
 
 @[inline]
 def getLegalAxioms : M (Array Lean.Name) := do return (← read).legalAxioms
+
+@[inline]
+def getAllowPartial : M Bool := do return (← read).allowPartial
 
 def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
   let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
@@ -109,10 +113,8 @@ def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
 def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
-  let theoremNames ← getTheoremNames
-  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← getLegalAxioms)
+  IO.ofExcept <| Comparator.compareAt challenge solution (← getTheoremNames) (← getLegalAxioms)
+  IO.ofExcept <| Comparator.checkAxioms solution (← getTheoremNames) (← getLegalAxioms) (← getAllowPartial)
   runKernel solution
 
 def compareIt : M Unit := do
@@ -134,6 +136,7 @@ structure Config where
   solution_module : String
   theorem_names : Array String
   permitted_axioms : Array String
+  allow_partial : Option Bool := none
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -142,6 +145,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     projectDir := cwd
     challengeModule := cfg.challenge_module.toName,
     solutionModule := cfg.solution_module.toName,
+    allowPartial := cfg.allow_partial.getD false,
     theoremNames := cfg.theorem_names.map String.toName,
     legalAxioms := cfg.permitted_axioms.map String.toName,
   }
