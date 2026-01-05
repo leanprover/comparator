@@ -15,6 +15,8 @@ structure Context where
   solutionModule : Lean.Name
   theoremNames : Array Lean.Name
   legalAxioms : Array Lean.Name
+  leanPrefix : System.FilePath
+  gitLocation : System.FilePath
 
 abbrev M := ReaderT Context IO
 
@@ -23,7 +25,9 @@ structure LandrunArgs where
   args : Array String
   envPass : Array String
   envOverride : Array (String × Option String) := #[]
+  readablePaths : Array System.FilePath
   writablePaths : Array System.FilePath
+  executablePaths : Array System.FilePath
 
 @[inline]
 def getTheoremNames : M (Array Lean.Name) := do return (← read).theoremNames
@@ -40,14 +44,40 @@ def getSolutionModule : M Lean.Name := do return (← read).solutionModule
 @[inline]
 def getLegalAxioms : M (Array Lean.Name) := do return (← read).legalAxioms
 
-def landrunArgs (writablePaths : Array System.FilePath) (env : Array String) : Array String :=
-  let base := #["--best-effort", "--rox", "/", "--rw", "/dev"]
-  let base := env.foldl (init := base) (fun acc env => acc ++ #["--env", env])
-  writablePaths.foldl (init := base) (fun acc path => acc ++ #["--rwx", path.toString])
+@[inline]
+def getLeanPrefix : M System.FilePath := do return (← read).leanPrefix
+
+@[inline]
+def getGitLocation : M System.FilePath := do return (← read).gitLocation
+
+def queryGitLocation : IO System.FilePath := do
+  let out ← IO.Process.run {
+    cmd := "which",
+    args := #["git"],
+    stdout := .piped,
+  }
+  return out.trimAscii.toString
+
+def queryLeanPrefix (projectDir : System.FilePath) : IO System.FilePath := do
+  let out ← IO.Process.run {
+    cmd := "lean",
+    args := #["--print-prefix"],
+    stdout := .piped,
+    cwd := projectDir
+  }
+  return out.trimAscii.toString
+
+def landrunArgs (readablePaths writablePaths executablePaths : Array System.FilePath) (env : Array String) : Array String :=
+  let args := #["--best-effort", "--ro", "/", "--rw", "/dev", "-ldd", "-add-exec"]
+  let args := env.foldl (init := args) (fun acc env => acc ++ #["--env", env])
+  let args := readablePaths.foldl (init := args) (fun acc path => acc ++ #["--ro", path.toString])
+  let args := writablePaths.foldl (init := args) (fun acc path => acc ++ #["--rwx", path.toString])
+  let args := executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
+  args
 
 def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
   let args :=
-    landrunArgs spawnArgs.writablePaths spawnArgs.envPass ++
+    landrunArgs spawnArgs.readablePaths spawnArgs.writablePaths spawnArgs.executablePaths spawnArgs.envPass ++
     #[spawnArgs.cmd] ++
     spawnArgs.args
   IO.Process.run {
@@ -60,7 +90,7 @@ def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
 
 def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
   let args :=
-    landrunArgs spawnArgs.writablePaths spawnArgs.envPass ++
+    landrunArgs spawnArgs.readablePaths spawnArgs.writablePaths spawnArgs.executablePaths spawnArgs.envPass ++
     #[spawnArgs.cmd] ++
     spawnArgs.args
   let proc ← IO.Process.spawn {
@@ -75,25 +105,37 @@ def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
 
 def safeLakeBuild (target : Lean.Name) : M Unit := do
   IO.println s!"Building {target}"
-  let dotLakeDir := (← getProjectDir) / ".lake"
+  let leanPrefix ← getLeanPrefix
+  let projectDir ← getProjectDir
+  let dotLakeDir := projectDir / ".lake"
+  let gitLocation ← getGitLocation
+
   runSandBoxed {
     cmd := "lake",
     args := #["build", target.toString (escape := false)],
     envPass := #["PATH", "HOME", "LEAN_ABORT_ON_PANIC"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
+    readablePaths := #[projectDir]
     writablePaths := #[dotLakeDir]
+    executablePaths := #[leanPrefix, gitLocation]
   }
 
 def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
   IO.println s!"Exporting {decls} from {module}"
   let baseArgs := #[module.toString (escape := false), "--"]
   let args := decls.foldl (·.push <| ·.toString (escape := false)) baseArgs
+
+  let leanPrefix ← getLeanPrefix
+  let projectDir ← getProjectDir
+  let dotLakeDir := projectDir / ".lake"
   runSandBoxedWithStdout {
     cmd := "lean4export",
     args := args,
     envPass := #["PATH", "HOME", "LEAN_PATH", "LEAN_ABORT_ON_PANIC"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
+    readablePaths := #[projectDir, dotLakeDir]
     writablePaths := #[]
+    executablePaths := #[leanPrefix]
   }
 
 def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
@@ -138,12 +180,16 @@ structure Config where
 
 def M.run (x : M α) (cfg : Config) : IO α := do
   let cwd ← IO.Process.getCurrentDir
+  let leanPrefix ← queryLeanPrefix cwd
+  let gitLocation ← queryGitLocation
   ReaderT.run x {
     projectDir := cwd
     challengeModule := cfg.challenge_module.toName,
     solutionModule := cfg.solution_module.toName,
     theoremNames := cfg.theorem_names.map String.toName,
     legalAxioms := cfg.permitted_axioms.map String.toName,
+    leanPrefix := leanPrefix,
+    gitLocation := gitLocation,
   }
 
 end Comparator
