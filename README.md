@@ -27,7 +27,8 @@ Given the following assumptions:
 2. You have not previously tried to compile the `Solution` file (as that might compromise your
    `Challenge` file to make it seem like you are looking for a different proof than you actually are)
 3. You have the `landrun` and `lean4export` binary in `PATH`
-4. `landrun` works correctly on your system
+4. `landrun` works correctly on your system and `Solution.lean` does not
+   exploit any bugs in `landrun` that allow a process to escape its sandbox
 5. The Lean kernel is correct (in the future we will add support for running different kernels as
    well to increase trust further)
 6. You are not running this under a privileged user
@@ -44,8 +45,11 @@ All theorems in `Solution` that are listed in `theorem_names` are guaranteed to:
 
 Note that running `lake exe cache get` to download a Mathlib cache is acceptable before running the
 comparator if you trust the cache to not be modified as to, e.g. contain different definitions from
-the one you would expect to make proofs trivial.
+the one you would expect.
 
+Furthermore, it is possible to avoid trusting `landrun`'s ability to sandbox the `Solution.lean` file:
+if you have obtained a fully pre-built `.lake` directory through other means and without compromising your
+checking environment, `Solution.lean` will not be rebuilt.
 
 ## Internals:
 We generally adopt a policy of not loading olean files as they just get mmaped into our address
