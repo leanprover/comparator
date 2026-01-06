@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
 import Comparator.ExportedEnv
+import Comparator.Utils
 
 namespace Comparator
 
@@ -54,24 +55,30 @@ partial def loop : CompareM Unit := do
 
 end Compare
 
-def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
+def compareAt (challenge solution : ExportedEnv) (targets axioms : Array Lean.Name) :
     Except String Unit := do
   let mut worklist := #[]
-  for target in targets do
+  for (target, isAxiom) in targets.map (·, false) ++ axioms.map (·, true) do
     let some challengeConst := challenge.constMap[target]?
       | throw s!"Const not found in challenge: '{target}'"
 
     let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
 
+    match challengeConst with
+    | .thmInfo _ | .axiomInfo _ => pure ()
+    | _ => throw s!"Challenge must be a theorem or axiom, not {Utils.constantKindName challengeConst}: '{target}'"
 
-    let (challengeConst, solutionConst) ←
-      match challengeConst, solutionConst with
-      | .thmInfo cc, .thmInfo sc
-      | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
+    if isAxiom then
+      match solutionConst with
+      | .thmInfo _ | .axiomInfo _ => pure ()
+      | _ => throw s!"Permitted axiom in solution must be theorem or axiom, not {Utils.constantKindName solutionConst}: '{target}'"
+    else
+      match solutionConst with
+      | .axiomInfo _ => throw s!"Solution failed to prove axiom '{target}'"
+      | _ => pure ()
 
-    if challengeConst != solutionConst then
+    if challengeConst.toConstantVal != solutionConst.toConstantVal then
       throw s!"Challenge and solution theorem statement do not match: '{target}'"
 
     worklist := worklist ++ challengeConst.type.getUsedConstants
