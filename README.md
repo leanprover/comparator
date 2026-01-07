@@ -13,7 +13,8 @@ The comparator is configured through a JSON file:
     "challenge_module": "Challenge",
     "solution_module": "Solution",
     "theorem_names": ["todo1"],
-    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+    "enable_nanoda": false
 }
 ```
 Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
@@ -50,6 +51,21 @@ the one you would expect.
 Furthermore, it is possible to avoid trusting `landrun`'s ability to sandbox the `Solution.lean` file:
 if you have obtained a fully pre-built `.lake` directory through other means and without compromising your
 checking environment, `Solution.lean` will not be rebuilt.
+
+## Checking with Additional Kernels
+Comparator currently supports checking with the [nanoda](https://github.com/ammkrn/nanoda_lib)
+kernel in addition to the builtin Lean one. To do this you need to set the `enable_nanoda` flag in
+the JSON configuration to `true`. Note that this feature currently requires:
+- A not yet upstreamed version of lean4export at https://github.com/leanprover/lean4export/pull/11
+- The nanoda branch https://github.com/ammkrn/nanoda_lib/tree/debug
+
+In the near term future both of these will be merged into the respective main branch and become
+available by default. Furthermore, nanoda will be used by the default once these changes have
+happened.
+
+To make nanoda available to comparator, you need to checkout the branch, install a recent Rust
+version and compile nanoda using `cargo build --release`. Then you need to add the `target/release`
+folder of the nanoda checkout to `PATH`.
 
 ## Internals:
 We generally adopt a policy of not loading olean files as they just get mmaped into our address

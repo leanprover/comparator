@@ -17,6 +17,7 @@ structure Context where
   legalAxioms : Array Lean.Name
   leanPrefix : System.FilePath
   gitLocation : System.FilePath
+  enableNanoda : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -50,6 +51,9 @@ def getLeanPrefix : M System.FilePath := do return (← read).leanPrefix
 @[inline]
 def getGitLocation : M System.FilePath := do return (← read).gitLocation
 
+@[inline]
+def getNanodaEnabled : M Bool := do return (← read).enableNanoda
+
 def queryGitLocation : IO System.FilePath := do
   let out ← IO.Process.run {
     cmd := "which",
@@ -67,19 +71,16 @@ def queryLeanPrefix (projectDir : System.FilePath) : IO System.FilePath := do
   }
   return out.trimAscii.toString
 
-def landrunArgs (readablePaths writablePaths executablePaths : Array System.FilePath) (env : Array String) : Array String :=
+def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := #["--best-effort", "--ro", "/", "--rw", "/dev", "-ldd", "-add-exec"]
-  let args := env.foldl (init := args) (fun acc env => acc ++ #["--env", env])
-  let args := readablePaths.foldl (init := args) (fun acc path => acc ++ #["--ro", path.toString])
-  let args := writablePaths.foldl (init := args) (fun acc path => acc ++ #["--rwx", path.toString])
-  let args := executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
-  args
+  let args := spawnArgs.envPass.foldl (init := args) (fun acc env => acc ++ #["--env", env])
+  let args := spawnArgs.readablePaths.foldl (init := args) (fun acc path => acc ++ #["--ro", path.toString])
+  let args := spawnArgs.writablePaths.foldl (init := args) (fun acc path => acc ++ #["--rwx", path.toString])
+  let args := spawnArgs.executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
+  args ++ #[spawnArgs.cmd] ++ spawnArgs.args
 
 def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
-  let args :=
-    landrunArgs spawnArgs.readablePaths spawnArgs.writablePaths spawnArgs.executablePaths spawnArgs.envPass ++
-    #[spawnArgs.cmd] ++
-    spawnArgs.args
+  let args := buildLandrunArgs spawnArgs
   IO.Process.run {
     cmd := "landrun",
     args,
@@ -89,10 +90,7 @@ def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
   }
 
 def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
-  let args :=
-    landrunArgs spawnArgs.readablePaths spawnArgs.writablePaths spawnArgs.executablePaths spawnArgs.envPass ++
-    #[spawnArgs.cmd] ++
-    spawnArgs.args
+  let args := buildLandrunArgs spawnArgs
   let proc ← IO.Process.spawn {
     cmd := "landrun",
     args,
@@ -138,28 +136,81 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
     executablePaths := #[leanPrefix]
   }
 
+def runNanoda (solutionExport : String) : M Unit := do
+  IO.println "Running nanoda kernel on solution"
+  IO.FS.withTempFile fun config configPath => do
+    let legalAxioms ← getLegalAxioms
+    config.putStr <| Lean.Json.compress <| Lean.Json.mkObj [
+      ("use_stdin", true),
+      ("permitted_axioms", .arr <| legalAxioms.map (.str ∘ Lean.Name.toString)),
+      ("unpermitted_axiom_hard_error", true),
+      ("nat_extension", true),
+      ("string_extension", true),
+    ]
+    config.flush
+
+    let spawnArgs := {
+      cmd := "nanoda_bin",
+      args := #[configPath.toString],
+      envPass := #[]
+      readablePaths := #[configPath.toString]
+      writablePaths := #[]
+      executablePaths := #[]
+    }
+
+    let args := buildLandrunArgs spawnArgs
+    let proc ← IO.Process.spawn {
+      cmd := "landrun",
+      args,
+      stdin := .piped
+      env := spawnArgs.envOverride
+      cwd := (← getProjectDir)
+    }
+
+    let (nanodaStdin, proc) ← proc.takeStdin
+    nanodaStdin.putStr solutionExport
+    nanodaStdin.flush
+    let ret ← proc.wait
+    if ret != 0 then
+      throw <| .userError s!"Child exited with {ret}"
+
+    IO.println "Nanoda kernel accepts the solution"
+
 def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
-  IO.println "Running kernel on solution."
+  IO.println "Running Lean default kernel on solution."
   let mut env ← Lean.mkEmptyEnvironment
   let mut constMap := solution.constMap
   -- Lean's kernel interprets just the addition of `Quot as adding all of these so adding them
   -- multiple times leads to errors.
   constMap := constMap.erase `Quot.mk |>.erase `Quot.lift |>.erase `Quot.ind
   discard <| env.replay' constMap
-  IO.println "Solution valid."
+  IO.println "Lean default kernel accepts the solution"
 
-def verifyMatch (challengeExport : String) (solutionExport : String) : M Unit := do
+def builtinTargets : M (Array Lean.Name) := do
+  if ← getNanodaEnabled then
+    -- TODO: fix when nanoda fixes its string handling
+    let mut additional := #[``Nat, ``String, ``String.mk, ``Char, ``Char.ofNat, ``List]
+    if (← getLegalAxioms).contains ``Quot.sound then
+      additional := additional ++ #[``Quot, ``Quot.mk, ``Quot.lift, ``Quot.ind]
+    return additional
+  else
+    return #[]
+
+def verifyMatch (challengeExport : String) (solutionExport : String) :
+    M Unit := do
   let challenge ← IO.ofExcept <| Comparator.parse challengeExport
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
   let theoremNames ← getTheoremNames
   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
   IO.ofExcept <| Comparator.compareAt challenge solution targets
   IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← getLegalAxioms)
+  if ← getNanodaEnabled then
+    runNanoda solutionExport
   runKernel solution
 
 def compareIt : M Unit := do
   let challengeModule ← getChallengeModule
-  let exportTargets := (← getTheoremNames) ++ (← getLegalAxioms)
+  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
   safeLakeBuild challengeModule
   let challengeExport ← safeExport challengeModule exportTargets
 
@@ -176,6 +227,7 @@ structure Config where
   solution_module : String
   theorem_names : Array String
   permitted_axioms : Array String
+  enable_nanoda : Bool
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -190,6 +242,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     legalAxioms := cfg.permitted_axioms.map String.toName,
     leanPrefix := leanPrefix,
     gitLocation := gitLocation,
+    enableNanoda := cfg.enable_nanoda
   }
 
 end Comparator
