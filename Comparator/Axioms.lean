@@ -48,15 +48,29 @@ where
 
 end Axioms
 
+/-- Get a human-readable name for the kind of constant -/
+def constantKindName (info : Lean.ConstantInfo) : String :=
+  match info with
+  | .axiomInfo .. => "axiom"
+  | .defnInfo .. => "def"
+  | .thmInfo .. => "theorem"
+  | .opaqueInfo .. => "opaque"
+  | .quotInfo .. => "quot"
+  | .inductInfo .. => "inductive"
+  | .ctorInfo .. => "constructor"
+  | .recInfo .. => "recursor"
+
 def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
     Except String Unit := do
   let mut worklist := #[]
   for target in targets do
     let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
-    let .thmInfo solutionConst := solutionConst
-      | throw s!"Solution constant is not a theorem: '{target}'"
-    worklist := worklist ++ solutionConst.value.getUsedConstants
+    let usedConstants ← match solutionConst with
+      | .thmInfo info
+      | .defnInfo info => pure info.value.getUsedConstants
+      | _ => throw s!"Solution constant is a {constantKindName solutionConst} which is not a theorem or def: '{target}'"
+    worklist := worklist ++ usedConstants
 
   let legalAxioms := Std.HashSet.ofArray legal
   Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
