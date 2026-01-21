@@ -54,9 +54,9 @@ partial def loop : CompareM Unit := do
 
 end Compare
 
-def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) :
+def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) (primitive : Array Lean.Name) :
     Except String Unit := do
-  let mut worklist := #[]
+  let mut worklist := primitive
   for target in targets do
     let some challengeConst := challenge.constMap[target]?
       | throw s!"Const not found in challenge: '{target}'"

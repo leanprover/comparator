@@ -186,6 +186,32 @@ def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
   discard <| env.replay' constMap
   IO.println "Lean default kernel accepts the solution"
 
+def primitiveTargets : M (Array Lean.Name) := do
+  -- The challenge needs to have all the built-in constants of the kernel, as the
+  -- kernel makes no guarantees when fed other definitions here.
+  -- List from `git grep new_persistent_expr_const src/kernel/`
+  -- We do not require the solution to have them; if they are unused that's ok,
+  -- there just must not be conflicting definitions.
+  return #[
+    -- ``Nat.zero,
+    -- ``Nat.succ,
+    ``Nat.add,
+    ``Nat.sub,
+    ``Nat.mul,
+    ``Nat.pow,
+    ``Nat.gcd,
+    ``Nat.div,
+    ``Nat.mod,
+    ``Nat.beq,
+    ``Nat.ble,
+    ``Nat.land,
+    ``Nat.lor,
+    ``Nat.xor,
+    ``Nat.shiftLeft,
+    ``Nat.shiftRight,
+    ``String.ofList,
+  ]
+
 def builtinTargets : M (Array Lean.Name) := do
   if ← getNanodaEnabled then
     -- TODO: fix when nanoda fixes its string handling
@@ -202,7 +228,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let solution ← IO.ofExcept <| Comparator.parse solutionExport
   let theoremNames ← getTheoremNames
   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets
+  IO.ofExcept <| Comparator.compareAt challenge solution targets (← primitiveTargets)
   IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← getLegalAxioms)
   if ← getNanodaEnabled then
     runNanoda solutionExport
@@ -210,7 +236,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
 
 def compareIt : M Unit := do
   let challengeModule ← getChallengeModule
-  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
+  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms) ++ (← primitiveTargets)
   safeLakeBuild challengeModule
   let challengeExport ← safeExport challengeModule exportTargets
 
