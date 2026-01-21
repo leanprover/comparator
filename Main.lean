@@ -190,8 +190,6 @@ def primitiveTargets : M (Array Lean.Name) := do
   -- The challenge needs to have all the built-in constants of the kernel, as the
   -- kernel makes no guarantees when fed other definitions here.
   -- List from `git grep new_persistent_expr_const src/kernel/`
-  -- We do not require the solution to have them; if they are unused that's ok,
-  -- there just must not be conflicting definitions.
   return #[
     -- ``Nat.zero,
     -- ``Nat.succ,
