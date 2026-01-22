@@ -76,6 +76,8 @@ The comparator performs the following steps to ensure these properties:
 3. Repeat the same build sandboxed and export sandboxed steps with `Solution`
 4. Verify that all declarations used in the statement of all relevant theorems in `Challenge`
    are the same as in the `Solution` environment.
+   This always includes the declarations from `Init` with special meaning to the kernel. Both `Challenge`
+   and `Solution` therefore need to import the default prelude.
 5. Verify that the body of all relevant theorems in the `Solution` environment only uses axioms
    listed in `permitted_axioms`
 6. Replay the `Solution` environment into the Lean kernel. Doing this within the same process as the
