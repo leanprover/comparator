@@ -7,11 +7,6 @@ import Lean.Environment
 
 namespace Comparator
 
-structure ExportedEnv where
-  constMap : Std.HashMap Lean.Name Lean.ConstantInfo
-  constOrder : Array Lean.Name
-  deriving Inhabited
-
 def runForUsedConsts [Monad m] (info : Lean.ConstantInfo) (f : Lean.Name → m Unit) : m Unit := do
   info.type.getUsedConstants.forM f
   info.all.forM f

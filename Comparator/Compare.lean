@@ -3,15 +3,16 @@ Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
-import Comparator.ExportedEnv
+import Comparator.Axioms
+import Export.Parse
 
 namespace Comparator
 
 namespace Compare
 
 structure Context where
-  challenge : ExportedEnv
-  solution : ExportedEnv
+  challenge : Export.ExportedEnv
+  solution : Export.ExportedEnv
 
 structure State where
   worklist : Array Lean.Name
@@ -54,7 +55,7 @@ partial def loop : CompareM Unit := do
 
 end Compare
 
-def compareAt (challenge solution : ExportedEnv) (targets : Array Lean.Name) (primitive : Array Lean.Name) :
+def compareAt (challenge solution : Export.ExportedEnv) (targets : Array Lean.Name) (primitive : Array Lean.Name) :
     Except String Unit := do
   let mut worklist := primitive
   for target in targets do

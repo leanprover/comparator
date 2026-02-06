@@ -3,14 +3,15 @@ Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
-import Comparator.ExportedEnv
+import Comparator.Util
+import Export.Parse
 
 namespace Comparator
 
 namespace Axioms
 
 structure Context where
-  solution : ExportedEnv
+  solution : Export.ExportedEnv
   legalAxioms : Std.HashSet Lean.Name
 
 structure State where
@@ -48,7 +49,7 @@ where
 
 end Axioms
 
-def checkAxioms (solution : ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
+def checkAxioms (solution : Export.ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
     Except String Unit := do
   let mut worklist := #[]
   for target in targets do

@@ -6,6 +6,7 @@ Authors: Henrik Böving
 import Lean
 import Comparator
 import Lean4Checker.Replay
+import Export.Parse
 
 namespace Comparator
 
@@ -108,6 +109,9 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
   let dotLakeDir := projectDir / ".lake"
   let gitLocation ← getGitLocation
 
+  if !(← System.FilePath.pathExists dotLakeDir) then
+    IO.FS.createDir dotLakeDir
+
   runSandBoxed {
     cmd := "lake",
     args := #["build", target.toString (escape := false)],
@@ -176,7 +180,7 @@ def runNanoda (solutionExport : String) : M Unit := do
 
     IO.println "Nanoda kernel accepts the solution"
 
-def runKernel (solution : Comparator.ExportedEnv) : M Unit := do
+def runKernel (solution : Export.ExportedEnv) : M Unit := do
   IO.println "Running Lean default kernel on solution."
   let mut env ← Lean.mkEmptyEnvironment
   let mut constMap := solution.constMap
@@ -220,10 +224,16 @@ def builtinTargets : M (Array Lean.Name) := do
   else
     return #[]
 
+def stringStream (s : String) : BaseIO IO.FS.Stream := do
+  let ref ← IO.mkRef {
+    data := s.toByteArray
+  }
+  return IO.FS.Stream.ofBuffer ref
+
 def verifyMatch (challengeExport : String) (solutionExport : String) :
     M Unit := do
-  let challenge ← IO.ofExcept <| Comparator.parse challengeExport
-  let solution ← IO.ofExcept <| Comparator.parse solutionExport
+  let challenge ← Export.parseStream (← stringStream challengeExport)
+  let solution ← Export.parseStream (← stringStream solutionExport)
   let theoremNames ← getTheoremNames
   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
   IO.ofExcept <| Comparator.compareAt challenge solution targets (← primitiveTargets)

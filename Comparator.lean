@@ -4,6 +4,4 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
 import Comparator.Axioms
-import Comparator.ExportedEnv
-import Comparator.Parser
 import Comparator.Compare
