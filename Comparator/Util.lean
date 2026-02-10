@@ -9,7 +9,7 @@ namespace Comparator
 
 def runForUsedConsts [Monad m] (info : Lean.ConstantInfo) (f : Lean.Name → m Unit) : m Unit := do
   info.type.getUsedConstants.forM f
-  info.all.forM f
+  f info.name
   if let some val := info.value? then
     val.getUsedConstants.forM f
 
@@ -17,6 +17,7 @@ def runForUsedConsts [Monad m] (info : Lean.ConstantInfo) (f : Lean.Name → m U
   | .axiomInfo .. | .quotInfo .. | .defnInfo .. | .thmInfo .. | .opaqueInfo .. => return ()
   | .inductInfo info =>
     info.ctors.forM f
+    info.all.forM f
   | .ctorInfo info =>
     f info.induct
   | .recInfo info =>
