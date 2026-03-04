@@ -20,11 +20,11 @@ and `Solution.lean` is provided by a party trying to convince you that they have
 writing out the same theorem but with a proper proof attached.
 
 Given the following assumptions:
-1. Only the `Solution.lean` file is controlled by a potentially malicious party, all other files
-   including most crucially `lakefile.toml`/`lakefile.lean` and `Challenge.lean` are controlled by
-   you.
-2. You have not previously tried to compile the `Solution` file (as that might compromise your
-   `Challenge` file to make it seem like you are looking for a different proof than you actually are)
+1. The transitive closure of imports of `Challenge.lean` as well as `lakefile.toml`/`lakefile.lean`
+   are controlled by you or trustworthy.
+2. You have not previously tried to compile the `Solution` file or any other potentially adversarial
+   files (as that might compromise your `Challenge` file to make it seem like you are looking for a
+   different proof than you actually are)
 3. You have the `landrun` and `lean4export` binary in `PATH`
 4. `landrun` works correctly on your system and `Solution.lean` does not
    exploit any bugs in `landrun` that allow a process to escape its sandbox
