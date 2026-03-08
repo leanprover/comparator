@@ -53,15 +53,12 @@ checking environment, `Solution.lean` will not be rebuilt.
 ## Checking with Additional Kernels
 Comparator currently supports checking with the [nanoda](https://github.com/ammkrn/nanoda_lib)
 kernel in addition to the builtin Lean one. To do this you need to set the `enable_nanoda` flag in
-the JSON configuration to `true`. Note that this feature currently requires:
-- The nanoda branch https://github.com/ammkrn/nanoda_lib/tree/debug
+the JSON configuration to `true`. Note that this feature currently requires installing
+[`nanoda`](https://github.com/ammkrn/nanoda_lib/).
 
-In the near term future this will be merged into the respective main branch and become
-available by default. Furthermore, nanoda will be used by the default once this has happened.
-
-To make nanoda available to comparator, you need to checkout the branch, install a recent Rust
-version and compile nanoda using `cargo build --release`. Then you need to add the `target/release`
-folder of the nanoda checkout to `PATH`.
+To make nanoda available to comparator, you need install a recent Rust version and compile nanoda
+using `cargo build --release`. Then you need to add the `target/release` folder of the nanoda
+checkout to `PATH`.
 
 ## Internals:
 We generally adopt a policy of not loading olean files as they just get mmaped into our address
