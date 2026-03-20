@@ -10,7 +10,7 @@ namespace Comparator
 def runForUsedConsts [Monad m] (info : Lean.ConstantInfo) (f : Lean.Name → m Unit) : m Unit := do
   info.type.getUsedConstants.forM f
   f info.name
-  if let some val := info.value? then
+  if let some val := info.value? (allowOpaque := true) then
     val.getUsedConstants.forM f
 
   match info with
