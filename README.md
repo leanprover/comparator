@@ -1,7 +1,7 @@
 # Comparator
 Comparator is a trustworthy judge for Lean proofs. It relies having an existing Lean installation as
 well as two additional binaries in `PATH`:
-1. [`landrun`](https://github.com/Zouuup/landrun)
+1. [`landrun`](https://github.com/Zouuup/landrun) compiled from the `main` branch's source 
 2. [`lean4export`](https://github.com/leanprover/lean4export/) at a version that is compatible with
    whatever Lean version your project is targeting.
 
