@@ -11,6 +11,7 @@ The comparator is configured through a JSON file:
     "challenge_module": "Challenge",
     "solution_module": "Solution",
     "theorem_names": ["todo1"],
+    "definition_names": [],
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
     "enable_nanoda": false
 }
@@ -18,6 +19,16 @@ The comparator is configured through a JSON file:
 Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
 and `Solution.lean` is provided by a party trying to convince you that they have proven `todo1` by
 writing out the same theorem but with a proper proof attached.
+
+`definition_names` is optional (defaults to `[]`) and lists `def`s in the challenge whose body may
+be filled in by the solution. For example, with
+```
+def n : Nat := sorry
+theorem foo : n + 17 = 34 := sorry
+```
+in the challenge and `definition_names = ["n"]`, the solution must declare `n` as a `def` with the
+same type, safety, and mutual-group list, but the body may differ. The theorem `foo` is then
+checked against the solution's realization of `n`. See "Definition holes" below.
 
 Given the following assumptions:
 1. The transitive closure of imports of `Challenge.lean` as well as `lakefile.toml`/`lakefile.lean`
@@ -49,6 +60,27 @@ the one you would expect.
 Furthermore, it is possible to avoid trusting `landrun`'s ability to sandbox the `Solution.lean` file:
 if you have obtained a fully pre-built `.lake` directory through other means and without compromising your
 checking environment, `Solution.lean` will not be rebuilt.
+
+## Definition holes
+Listing a name in `definition_names` declares it as a "hole": the challenge may set its body
+to `sorry` (or any placeholder) and the solution gets to provide the real implementation.
+
+Rules:
+- The name must be a `def` on both sides.
+- Name, universe parameters, type, safety (`safe`/`partial`/`unsafe`), and mutual-group list
+  must agree between challenge and solution.
+- Only the body and reducibility hints may differ.
+- The solution's hole body is walked transitively: every constant it references must either
+  match the challenge byte-for-byte or itself be a listed hole.
+- The solution's hole body is always axiom-checked, even if the theorem's proof term does not
+  syntactically reference the hole. This is important: a proof like `Eq.refl 34 : n + 17 = 34`
+  is kernel-valid when the solution defines `n := 17`, but its stored term contains no reference
+  to `n`. Without an explicit walk of hole bodies, illegal axioms hidden inside a hole's body
+  could escape validation.
+
+The guarantee becomes: theorems in `theorem_names` are proved against the solution's
+realization of the holes, and only axioms in `permitted_axioms` are used (including inside
+hole bodies). The statement of each theorem still matches the challenge exactly.
 
 ## Checking with Additional Kernels
 Comparator currently supports checking with the [nanoda](https://github.com/ammkrn/nanoda_lib)

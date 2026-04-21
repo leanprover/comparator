@@ -49,7 +49,8 @@ where
 
 end Axioms
 
-def checkAxioms (solution : Export.ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
+def checkAxioms (solution : Export.ExportedEnv)
+    (targets : Array Lean.Name) (holes : Array Lean.Name) (legal : Array Lean.Name) :
     Except String Unit := do
   let mut worklist := #[]
   for target in targets do
@@ -58,6 +59,13 @@ def checkAxioms (solution : Export.ExportedEnv) (targets : Array Lean.Name) (leg
     let .thmInfo solutionConst := solutionConst
       | throw s!"Solution constant is not a theorem: '{target}'"
     worklist := worklist ++ solutionConst.value.getUsedConstants
+
+  -- Hole bodies are only reached through the theorem graph if the stored proof term
+  -- happens to syntactically reference them. That is not a guaranteed property of
+  -- elaboration — a proof can type-check via reduction without mentioning the hole's
+  -- name (e.g. `Eq.refl 34 : n + 17 = 34` when `n := 17`). Seed hole names directly so
+  -- hole bodies' axiom usage is always validated.
+  worklist := worklist ++ holes
 
   let legalAxioms := Std.HashSet.ofArray legal
   Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
