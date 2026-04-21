@@ -124,7 +124,11 @@ def compareAt (challenge solution : Export.ExportedEnv)
     let some solutionConst := solution.constMap[hole]?
       | throw s!"Hole not found in solution: '{hole}'"
     Compare.checkHoleMatch hole challengeConst solutionConst
-    worklist := worklist ++ challengeConst.type.getUsedConstants
+    -- Seed the hole name itself so `Compare.loop` visits it and walks the solution's
+    -- body via `addRelevantConsts`. Without this, a hole that appears only in proof
+    -- terms (not theorem statements) would never have its solution-side body checked
+    -- for byte-identity against the challenge environment.
+    worklist := worklist.push hole
 
   let holesSet := Std.HashSet.ofArray holes
   Compare.loop.run { challenge, solution, holes := holesSet } |>.run' { worklist, checked := {} }
