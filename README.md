@@ -63,14 +63,33 @@ checkout to `PATH`.
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
 simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
-false, all the way to constructing complex mathematical objects. Comparator supports this by
-allowing challenges to provide definitions that are sorried out:
+false, all the way to constructing complex mathematical objects. For these types of solutions,
+comparator can guarantee that:
+1. They use no more axioms than listed in `permitted_axioms`
+2. They are accepted by the Lean kernel
+
+Crucially, many definition hole challenges can be gamed without additional oversight.
+For example, given a conjecture-style challenge:
+```lean
+def ChallengeSolution : Prop := sorry
+theorem challenge : RiemannHypothesis ↔ ChallengeSolution := sorry
+```
+a solution could define `ChallengeSolution` as:
+```lean
+def ChallengeSolution : Prop := RiemannHypothesis
+```
+and conduct a simple proof of `challenge` by reflexivity. The intention of the challenge though was
+of course to ask for a `True` or `False` value for `ChallengeSolution`. For this reason, all
+definition hole solutions **must** always be checked with an additional (potentially human)
+verifier.
+
+To establish a definition hole, the challenge must provide it as a sorried definitions:
 ```lean
 def large : Nat := sorry
 
 theorem large_lt : 37 < large := sorry
 ```
-and then mark them as `definition_names` in `configuration.json`:
+All of the holes must then be put into the `definition_names` field in `configuration.json`:
 ```
 {
     "challenge_module": "Challenge",
@@ -92,20 +111,6 @@ def large : Nat := 38
 
 theorem large_lt : 37 < large := by decide
 ```
-
-Crucially this (naturally) leaves out the check that the body of the definition matches between
-challenge and solution. For this reason a human verifier **must** always check that the constant is
-actually sensible. For example, for a conjecture-style challenge such as:
-```lean
-def ChallengeSolution : Prop := sorry
-theorem challenge : RiemannHypothesis ↔ ChallengeSolution := sorry
-```
-a solution could define `ChallengeSolution` as:
-```lean
-def ChallengeSolution : Prop := RiemannHypothesis
-```
-and conduct a simple proof in `challenge` by reflexivity. The intention of the challenge though was
-of course to ask for a `True` or `False` value for `ChallengeSolution`.
 
 ## Internals:
 We generally adopt a policy of not loading olean files as they just get mmaped into our address
