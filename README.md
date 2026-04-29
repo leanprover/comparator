@@ -28,8 +28,8 @@ Given the following assumptions:
 3. You have the `landrun` and `lean4export` binary in `PATH`
 4. `landrun` works correctly on your system and `Solution.lean` does not
    exploit any bugs in `landrun` that allow a process to escape its sandbox
-5. The Lean kernel is correct (in the future we will add support for running different kernels as
-   well to increase trust further)
+5. The Lean kernel is correct (with `enable_nanoda` this can be reduced to "The lean or the nanoda kernel
+   are correct")
 6. You are not running this under a privileged user
 
 If the following command succeeds:
@@ -54,11 +54,64 @@ checking environment, `Solution.lean` will not be rebuilt.
 Comparator currently supports checking with the [nanoda](https://github.com/ammkrn/nanoda_lib)
 kernel in addition to the builtin Lean one. To do this you need to set the `enable_nanoda` flag in
 the JSON configuration to `true`. Note that this feature currently requires installing
-[`nanoda`](https://github.com/ammkrn/nanoda_lib/).
+[nanoda](https://github.com/ammkrn/nanoda_lib/).
 
 To make nanoda available to comparator, you need install a recent Rust version and compile nanoda
 using `cargo build --release`. Then you need to add the `target/release` folder of the nanoda
 checkout to `PATH`.
+
+## Definition Holes
+Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
+simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
+false, all the way to constructing complex mathematical objects. For these types of solutions,
+comparator can guarantee that:
+1. They use no more axioms than listed in `permitted_axioms`
+2. They are accepted by the Lean kernel
+3. The name, type, universe levels and safety levels of all definition holes match
+
+Crucially, many definition hole challenges can be gamed without additional oversight.
+For example, given a conjecture-style challenge:
+```lean
+def ChallengeSolution : Prop := sorry
+theorem challenge : RiemannHypothesis ↔ ChallengeSolution := sorry
+```
+a solution could define `ChallengeSolution` as:
+```lean
+def ChallengeSolution : Prop := RiemannHypothesis
+```
+and conduct a simple proof of `challenge` by reflexivity. The intention of the challenge though was
+of course to ask for a `True` or `False` value for `ChallengeSolution`. For this reason, all
+definition hole solutions **must** always be checked with an additional (potentially human)
+verifier.
+
+To establish a definition hole, the challenge must provide it as a sorried definitions:
+```lean
+def large : Nat := sorry
+
+theorem large_lt : 37 < large := sorry
+```
+All of the holes must then be put into the `definition_names` field in `configuration.json`:
+```
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": ["large_lt"],
+    "definition_names": ["large"],
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+    "enable_nanoda": false
+}
+```
+For all `definition_names`, comparator ensures that in the solution:
+- the name, type, universe levels and safety level match
+- the constant does not (transitively) refer to non-permitted axioms
+- the constant type checks
+
+Thus, the following solution would be accepted:
+```lean
+def large : Nat := 38
+
+theorem large_lt : 37 < large := by decide
+```
 
 ## Internals:
 We generally adopt a policy of not loading olean files as they just get mmaped into our address

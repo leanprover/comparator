@@ -49,17 +49,24 @@ where
 
 end Axioms
 
-def checkAxioms (solution : Export.ExportedEnv) (targets : Array Lean.Name) (legal : Array Lean.Name) :
-    Except String Unit := do
+def checkAxioms (solution : Export.ExportedEnv) (theoremTargets : Array Lean.Name)
+    (definitionTargets : Array Lean.Name) (legalAxioms : Array Lean.Name) : Except String Unit := do
   let mut worklist := #[]
-  for target in targets do
+  for target in theoremTargets do
     let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
     let .thmInfo solutionConst := solutionConst
       | throw s!"Solution constant is not a theorem: '{target}'"
-    worklist := worklist ++ solutionConst.value.getUsedConstants
+    worklist := worklist.push solutionConst.name
 
-  let legalAxioms := Std.HashSet.ofArray legal
+  for target in definitionTargets do
+    let some solutionConst := solution.constMap[target]?
+      | throw s!"Const not found in solution: '{target}'"
+    let .defnInfo solutionConst := solutionConst
+      | throw s!"Solution constant is not a definition: '{target}'"
+    worklist := worklist.push solutionConst.name
+
+  let legalAxioms := Std.HashSet.ofArray legalAxioms
   Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
 
 end Comparator

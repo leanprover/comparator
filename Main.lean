@@ -15,6 +15,7 @@ structure Context where
   challengeModule : Lean.Name
   solutionModule : Lean.Name
   theoremNames : Array Lean.Name
+  definitionNames : Array Lean.Name
   legalAxioms : Array Lean.Name
   leanPrefix : System.FilePath
   gitLocation : System.FilePath
@@ -33,6 +34,9 @@ structure LandrunArgs where
 
 @[inline]
 def getTheoremNames : M (Array Lean.Name) := do return (← read).theoremNames
+
+@[inline]
+def getDefinitionNames : M (Array Lean.Name) := do return (← read).definitionNames
 
 @[inline]
 def getProjectDir : M System.FilePath := do return (← read).projectDir
@@ -235,16 +239,19 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
   let theoremNames ← getTheoremNames
+  let definitionNames ← getDefinitionNames
   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets (← primitiveTargets)
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames (← getLegalAxioms)
+  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
+  IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
   if ← getNanodaEnabled then
     runNanoda solutionExport
   runKernel solution
 
 def compareIt : M Unit := do
+  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
+    ++ (← primitiveTargets) ++ (← getDefinitionNames)
+
   let challengeModule ← getChallengeModule
-  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms) ++ (← primitiveTargets)
   safeLakeBuild challengeModule
   let challengeExport ← safeExport challengeModule exportTargets
 
@@ -260,6 +267,7 @@ structure Config where
   challenge_module : String
   solution_module : String
   theorem_names : Array String
+  definition_names : Option (Array String) := none
   permitted_axioms : Array String
   enable_nanoda : Bool
   deriving Lean.FromJson, Lean.ToJson, Repr
@@ -273,6 +281,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     challengeModule := cfg.challenge_module.toName,
     solutionModule := cfg.solution_module.toName,
     theoremNames := cfg.theorem_names.map String.toName,
+    definitionNames := cfg.definition_names.getD #[] |>.map String.toName,
     legalAxioms := cfg.permitted_axioms.map String.toName,
     leanPrefix := leanPrefix,
     gitLocation := gitLocation,
