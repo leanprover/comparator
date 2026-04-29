@@ -13,6 +13,7 @@ namespace Compare
 structure Context where
   challenge : Export.ExportedEnv
   solution : Export.ExportedEnv
+  definitionTargets : Std.HashSet Lean.Name
 
 structure State where
   worklist : Array Lean.Name
@@ -43,28 +44,34 @@ partial def loop : CompareM Unit := do
     let some challengeConst := (← read).challenge.constMap[target]?
       | throw s!"Const not found in challenge '{target}'"
     let some solutionConst := (← read).solution.constMap[target]?
-      | throw s!"Const not found in target '{target}'"
+      | throw s!"Const not found in solution '{target}'"
 
-    if challengeConst != solutionConst then
-      throw s!"Const does not match between challenge and target '{target}'"
-
-    addRelevantConsts solutionConst
+    if (← read).definitionTargets.contains solutionConst.name then
+      solutionConst.type.getUsedConstants.forM addWorklist
+    else
+      if challengeConst != solutionConst then
+        throw s!"Const does not match between challenge and target '{target}'"
+      addRelevantConsts solutionConst
 
     modify fun s => { s with checked := s.checked.insert target }
     loop
 
 end Compare
 
-def compareAt (challenge solution : Export.ExportedEnv) (targets : Array Lean.Name) (primitive : Array Lean.Name) :
-    Except String Unit := do
+def definitionHoleMatches (challengeHole solutionHole : Lean.DefinitionVal) : Bool :=
+  challengeHole.toConstantVal == solutionHole.toConstantVal
+    && challengeHole.safety == solutionHole.safety
+
+def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array Lean.Name)
+    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) : Except String Unit := do
   let mut worklist := primitive
-  for target in targets do
+
+  for target in theoremTargets do
     let some challengeConst := challenge.constMap[target]?
       | throw s!"Const not found in challenge: '{target}'"
 
     let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
-
 
     let (challengeConst, solutionConst) ←
       match challengeConst, solutionConst with
@@ -77,6 +84,24 @@ def compareAt (challenge solution : Export.ExportedEnv) (targets : Array Lean.Na
 
     worklist := worklist ++ challengeConst.type.getUsedConstants
 
-  Compare.loop.run { challenge, solution } |>.run' { worklist, checked := {} }
+  for target in definitionTargets do
+    let some challengeConst := challenge.constMap[target]?
+      | throw s!"Const not found in challenge: '{target}'"
+
+    let some solutionConst := solution.constMap[target]?
+      | throw s!"Const not found in solution: '{target}'"
+
+    let .defnInfo challengeConst := challengeConst
+      | throw s!"Challenge constant is not a definition: '{target}'"
+    let .defnInfo solutionConst := solutionConst
+      | throw s!"Solution constant is not a definition: '{target}'"
+
+    if !definitionHoleMatches challengeConst solutionConst then
+      throw s!"Const does not match between challenge and target '{target}'"
+
+    worklist := worklist.push solutionConst.name
+
+  let definitionTargets := Std.HashSet.ofArray definitionTargets
+  Compare.loop.run { challenge, solution, definitionTargets } |>.run' { worklist, checked := {} }
 
 end Comparator
