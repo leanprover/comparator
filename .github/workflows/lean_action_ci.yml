@@ -11,4 +11,37 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: comparator
+
+      - uses: actions/checkout@v4
+        with:
+          repository: leanprover/lean4export
+          path: lean4export
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Zouuup/landrun
+          path: landrun
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Build landrun
+        working-directory: landrun
+        run: go build -o landrun cmd/landrun/main.go
+
       - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: comparator
+
+      - name: Build lean4export
+        working-directory: lean4export
+        run: lake build
+
+      - name: Run comparator tests
+        working-directory: comparator
+        run: |
+          export PATH="$GITHUB_WORKSPACE/lean4export/.lake/build/bin:$GITHUB_WORKSPACE/landrun:$PATH"
+          lean --run runtests.lean
