@@ -67,6 +67,7 @@ false, all the way to constructing complex mathematical objects. For these types
 comparator can guarantee that:
 1. They use no more axioms than listed in `permitted_axioms`
 2. They are accepted by the Lean kernel
+3. The name, type, universe levels and safety levels of all definition holes match
 
 Crucially, many definition hole challenges can be gamed without additional oversight.
 For example, given a conjecture-style challenge:
