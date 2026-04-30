@@ -65,7 +65,7 @@ def queryGitLocation : IO System.FilePath := do
     args := #["git"],
     stdout := .piped,
   }
-  return out.trimAscii.toString
+  return out.trim
 
 def queryLeanPrefix (projectDir : System.FilePath) : IO System.FilePath := do
   let out ← IO.Process.run {
@@ -74,7 +74,7 @@ def queryLeanPrefix (projectDir : System.FilePath) : IO System.FilePath := do
     stdout := .piped,
     cwd := projectDir
   }
-  return out.trimAscii.toString
+  return out.trim
 
 def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := #["--best-effort", "--ro", "/", "--rw", "/dev", "-ldd", "-add-exec"]
@@ -215,7 +215,6 @@ def primitiveTargets : M (Array Lean.Name) := do
     ``Nat.xor,
     ``Nat.shiftLeft,
     ``Nat.shiftRight,
-    ``String.ofList,
   ]
 
 def builtinTargets : M (Array Lean.Name) := do
@@ -230,7 +229,7 @@ def builtinTargets : M (Array Lean.Name) := do
 
 def stringStream (s : String) : BaseIO IO.FS.Stream := do
   let ref ← IO.mkRef {
-    data := s.toByteArray
+    data := s.toUTF8
   }
   return IO.FS.Stream.ofBuffer ref
 
