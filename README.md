@@ -1,11 +1,11 @@
 # Comparator
 Comparator is a trustworthy judge for Lean proofs. It relies having an existing Lean installation as
-well as two additional binaries in `PATH`:
-1. [`landrun`](https://github.com/Zouuup/landrun) compiled from the `main` branch's source 
-2. [`lean4export`](https://github.com/leanprover/lean4export/) at a version that is compatible with
-   whatever Lean version your project is targeting.
+well as:
+1. [`landrun`](https://github.com/Zouuup/landrun), compiled from the `main` branch's source, present in the `PATH` or specified by the `COMPARATOR_LANDRUN` environment variable
+2. [`lean4export`](https://github.com/leanprover/lean4export/), at a version that is compatible with whatever Lean version your project is targeting, present in the `PATH`or specified by the `COMPARATOR_LEAN4EXPORT` environment variable
+3. (optional) [nanoda](https://github.com/ammkrn/nanoda_lib/) compiled with a recent version of Rust: `cargo build --release` will place `nanoda_bin` in the `target/release` folder of the checked-out directory. To enable nanoda verification, the folder for `nanoda_bin` must be present in the `PATH` or specified by the `COMPARATOR_NANODA` environment variable
 
-The comparator is configured through a JSON file:
+Comparator is configured through a JSON file:
 ```
 {
     "challenge_module": "Challenge",
@@ -53,12 +53,12 @@ checking environment, `Solution.lean` will not be rebuilt.
 ## Checking with Additional Kernels
 Comparator currently supports checking with the [nanoda](https://github.com/ammkrn/nanoda_lib)
 kernel in addition to the builtin Lean one. To do this you need to set the `enable_nanoda` flag in
-the JSON configuration to `true`. Note that this feature currently requires installing
-[nanoda](https://github.com/ammkrn/nanoda_lib/).
+the JSON configuration to `true`.
 
-To make nanoda available to comparator, you need install a recent Rust version and compile nanoda
-using `cargo build --release`. Then you need to add the `target/release` folder of the nanoda
-checkout to `PATH`.
+This feature currently requires installing [nanoda](https://github.com/ammkrn/nanoda_lib/).
+You need install a recent Rust version and compile nanoda using `cargo build --release`. 
+Then you need to add the `target/release` folder of the nanoda checkout to `PATH`, or specify the 
+location of the `nanoda_bin` library with `COMPARATOR_NANODA`.
 
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
@@ -112,6 +112,40 @@ def large : Nat := 38
 
 theorem large_lt : 37 < large := by decide
 ```
+
+## Development
+
+The `scripts/fake-landrun.sh` can be used to replace Landrun in development if you are not on a Linux system that supports landrun.
+
+The following commands, starting from the root directory of a fresh git checkout, will build and run `comparator` on one of the test examples:
+
+```sh
+lake build lean4export comparator
+
+cd tests/projects/simple_mismatch
+
+cat > lakefile.toml <<EOF
+name = "comparatortest"
+version = "0.1.0"
+
+[[lean_lib]]
+name = "Solution"
+
+[[lean_lib]]
+name = "Challenge"
+EOF
+
+COMPARATOR_LANDRUN=../../../scripts/fake-landrun.sh COMPARATOR_LEAN4EXPORT=../../../.lake/packages/lean4export/.lake/build/bin/lean4export lake env ../../../.lake/build/bin/comparator config.json
+```
+
+The following commands, starting from the root directory of a fresh git checkout, will build and run the tests:
+
+```sh
+lake build lean4export comparator
+COMPARATOR_LANDRUN=$(realpath scripts/fake-landrun.sh) COMPARATOR_LEAN4EXPORT=$(realpath .lake/packages/lean4export/.lake/build/bin/lean4export) lean --run runtests.lean
+```
+
+Replace the `landrun` and `lean4export` arguments as needed, or place the binaries on the `PATH`.
 
 ## Internals:
 We generally adopt a policy of not loading olean files as they just get mmaped into our address
