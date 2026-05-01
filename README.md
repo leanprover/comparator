@@ -34,13 +34,17 @@ Given the following assumptions:
 
 If the following command succeeds:
 ```
-lake env path/to/comparator/binary path/to/config.json
+systemd-run --property=RestrictAddressFamilies=~AF_UNIX --user --pty -E PATH="$PATH" --working-directory $(pwd) -- bash -c 'lake env path/to/comparator/binary path/to/config.json'
 ```
 
 All theorems in `Solution` that are listed in `theorem_names` are guaranteed to:
 1. Prove the same statement as provided in `Challenge`
 2. Use no more axioms than listed in `permitted_axioms`
 3. Be accepted by the Lean kernel
+
+> [!NOTE]
+> The `systemd-run` part is required to patch a hole that currently exists in `landrun` which allows
+> programs to still access UNIX domain sockets.
 
 Note that running `lake exe cache get` to download a Mathlib cache is acceptable before running the
 comparator if you trust the cache to not be modified as to, e.g. contain different definitions from
