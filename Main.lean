@@ -20,6 +20,9 @@ structure Context where
   leanPrefix : System.FilePath
   gitLocation : System.FilePath
   enableNanoda : Bool
+  whichLandrun : String
+  whichLean4Export : String
+  whichNanoda : String
 
 abbrev M := ReaderT Context IO
 
@@ -86,18 +89,22 @@ def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
 
 def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
   let args := buildLandrunArgs spawnArgs
-  IO.Process.run {
-    cmd := "landrun",
+  let { stdout, stderr, exitCode } ← IO.Process.output {
+    cmd := (← read).whichLandrun,
     args,
-    stdout := .piped,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
   }
+  IO.eprint stderr
+  if exitCode != 0 then
+    throw <| .userError s!"Child exited with {exitCode}"
+  return stdout
+
 
 def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
   let args := buildLandrunArgs spawnArgs
   let proc ← IO.Process.spawn {
-    cmd := "landrun",
+    cmd := (← read).whichLandrun,
     args,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
@@ -135,7 +142,7 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
   let projectDir ← getProjectDir
   let dotLakeDir := projectDir / ".lake"
   runSandBoxedWithStdout {
-    cmd := "lean4export",
+    cmd := (← read).whichLean4Export
     args := args,
     envPass := #["PATH", "HOME", "LEAN_PATH", "LEAN_ABORT_ON_PANIC"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
@@ -158,7 +165,7 @@ def runNanoda (solutionExport : String) : M Unit := do
     config.flush
 
     let spawnArgs := {
-      cmd := "nanoda_bin",
+      cmd := (← read).whichNanoda
       args := #[configPath.toString],
       envPass := #[]
       readablePaths := #[configPath.toString]
@@ -168,7 +175,7 @@ def runNanoda (solutionExport : String) : M Unit := do
 
     let args := buildLandrunArgs spawnArgs
     let proc ← IO.Process.spawn {
-      cmd := "landrun",
+      cmd := (← read).whichLandrun,
       args,
       stdin := .piped
       env := spawnArgs.envOverride
@@ -276,6 +283,9 @@ def M.run (x : M α) (cfg : Config) : IO α := do
   let cwd ← IO.Process.getCurrentDir
   let leanPrefix ← queryLeanPrefix cwd
   let gitLocation ← queryGitLocation
+  let whichLean4Export := (← IO.getEnv "COMPARATOR_LEAN4EXPORT").getD "lean4export"
+  let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
+  let whichNanoda := (← IO.getEnv "COMPARATOR_NANODA").getD "nanoda_bin"
   ReaderT.run x {
     projectDir := cwd
     challengeModule := cfg.challenge_module.toName,
@@ -285,7 +295,10 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     legalAxioms := cfg.permitted_axioms.map String.toName,
     leanPrefix := leanPrefix,
     gitLocation := gitLocation,
-    enableNanoda := cfg.enable_nanoda
+    enableNanoda := cfg.enable_nanoda,
+    whichLean4Export,
+    whichLandrun,
+    whichNanoda
   }
 
 end Comparator
