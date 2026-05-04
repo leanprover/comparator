@@ -34,13 +34,17 @@ Given the following assumptions:
 
 If the following command succeeds:
 ```
-lake env path/to/comparator/binary path/to/config.json
+systemd-run --property=RestrictAddressFamilies=~AF_UNIX --user --pty -E PATH="$PATH" --working-directory $(pwd) -- bash -c 'lake env path/to/comparator/binary path/to/config.json'
 ```
 
 All theorems in `Solution` that are listed in `theorem_names` are guaranteed to:
 1. Prove the same statement as provided in `Challenge`
 2. Use no more axioms than listed in `permitted_axioms`
 3. Be accepted by the Lean kernel
+
+> [!NOTE]
+> The Trusted Code Base of Landrun naturally includes the operating system and hardware it is running on, plus its sandboxing mechanism.
+> The systemd-run part explicitly guard against a vulnerability in landrun, Comparator's current sandboxing solution, that will be fixed in Linux 7.1
 
 Note that running `lake exe cache get` to download a Mathlib cache is acceptable before running the
 comparator if you trust the cache to not be modified as to, e.g. contain different definitions from
