@@ -43,8 +43,8 @@ All theorems in `Solution` that are listed in `theorem_names` are guaranteed to:
 3. Be accepted by the Lean kernel
 
 > [!NOTE]
-> The `systemd-run` part is required to patch a hole that currently exists in `landrun` which allows
-> programs to still access UNIX domain sockets.
+> The Trusted Code Base of Landrun naturally includes the operating system and hardware it is running on, plus its sandboxing mechanism.
+> The systemd-run part explicitly guard against a vulnerability in landrun, Comparator's current sandboxing solution, that will be fixed in Linux 7.1
 
 Note that running `lake exe cache get` to download a Mathlib cache is acceptable before running the
 comparator if you trust the cache to not be modified as to, e.g. contain different definitions from
