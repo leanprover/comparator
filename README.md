@@ -160,10 +160,10 @@ space and then dereferenced and are as such a potential point of attack for soph
 
 The comparator performs the following steps to ensure these properties:
 1. Build `Challenge` using `lake` in a `landrun` sandbox that has:
-  - read access to the entire file system and write access to `/dev`
-  - write access to the `.lake` directory of the project
+   - read access to the entire file system and write access to `/dev`
+   - write access to the `.lake` directory of the project
 2. Run `lean4export` on the produced `Challenge.olean` in a `landrun` sandbox that has:
-  - read access to the entire file system and write access to `/dev`
+   - read access to the entire file system and write access to `/dev`
 3. Repeat the same build sandboxed and export sandboxed steps with `Solution`
 4. Verify that all declarations used in the statement of all relevant theorems in `Challenge`
    are the same as in the `Solution` environment.
