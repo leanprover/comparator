@@ -125,7 +125,7 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
 
   runSandBoxed {
     cmd := "lake",
-    args := #["build", target.toString (escape := false)],
+    args := #["build", target.toString],
     envPass := #["PATH", "HOME", "LEAN_ABORT_ON_PANIC"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
     readablePaths := #[projectDir]
@@ -135,8 +135,8 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
 
 def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
   IO.println s!"Exporting {decls} from {module}"
-  let baseArgs := #[module.toString (escape := false), "--"]
-  let args := decls.foldl (·.push <| ·.toString (escape := false)) baseArgs
+  let baseArgs := #[module.toString, "--"]
+  let args := decls.foldl (·.push <| ·.toString) baseArgs
 
   let leanPrefix ← getLeanPrefix
   let projectDir ← getProjectDir
