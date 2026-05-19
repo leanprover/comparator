@@ -29,7 +29,9 @@ partial def copyDirContents (src : FilePath) (dst : FilePath) : IO Unit := do
       copyFile srcPath dstPath
 
 def createAdditionalFiles (dir : FilePath) : IO Unit := do
-  let lakefileContent :=
+  -- Only generate a default lakefile if the test project doesn't provide its own
+  if !(← (dir / "lakefile.toml").pathExists) then
+    let lakefileContent :=
 "
 name = \"comparatortest\"
 version = \"0.1.0\"
@@ -40,7 +42,7 @@ name = \"Solution\"
 [[lean_lib]]
 name = \"Challenge\"
 "
-  IO.FS.writeFile (dir / "lakefile.toml") lakefileContent
+    IO.FS.writeFile (dir / "lakefile.toml") lakefileContent
 
 def runCommandInDir (dir : FilePath) (cmd : String) (args : Array String) : IO Nat := do
   let output ← IO.Process.spawn {
