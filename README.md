@@ -1,5 +1,5 @@
 # Comparator
-Comparator is a trustworthy judge for Lean proofs. It relies having an existing Lean installation as
+Comparator is a trustworthy judge for Lean proofs. It relies on having an existing Lean installation as
 well as:
 1. [`landrun`](https://github.com/Zouuup/landrun), compiled from the `main` branch's source, present in `PATH`
 2. [`lean4export`](https://github.com/leanprover/lean4export/), at a version that is compatible with whatever Lean version your project is targeting, present in `PATH`
@@ -91,7 +91,7 @@ of course to ask for a `True` or `False` value for `ChallengeSolution`. For this
 definition hole solutions **must** always be checked with an additional (potentially human)
 verifier.
 
-To establish a definition hole, the challenge must provide it as a sorried definitions:
+To establish a definition hole, the challenge must provide it as a sorried definition:
 ```lean
 def large : Nat := sorry
 
@@ -178,4 +178,4 @@ The comparator performs the following steps to ensure these properties:
 
 Note that as `Challenge` is trusted, both the sandbox and lean4export step for `Challenge` are not
 necessary to the best of our knowledge. We still adopt these rather free measures as additional
-paranoia in case an adversary comes up with a mean of attack anyway.
+paranoia in case an adversary comes up with a means of attack anyway.
