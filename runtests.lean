@@ -1,5 +1,26 @@
 import Lean
 
+/-!
+# Comparator Test Runner
+
+Runs integration tests for the comparator from `tests/projects/`.
+Each test project is a directory containing:
+- `Challenge.lean` / `Solution.lean`: the Lean source files
+- `config.json`: the comparator configuration
+- `test.json`: expected exit code, e.g. `{"exit_code": 0}` for a passing test
+- (optional) `lakefile.toml`: custom lake configuration; a default is generated if absent
+
+## Usage
+
+```bash
+# Run all tests
+lean --run runtests.lean
+
+# Run only tests whose name contains "simple" or "def_hole"
+lean --run runtests.lean simple def_hole
+```
+-/
+
 open Lean System.FilePath IO.FS IO.Process System
 
 structure TestConfig where
@@ -117,15 +138,28 @@ def printTestResult (result : TestResult) : IO Unit := do
   | .error name msg =>
     IO.println s!"✗ {name}: ERROR - {msg}"
 
-def main : IO UInt32 := do
+/-- Run comparator integration tests. When `args` is non-empty, only tests whose
+project name contains one of the given strings (as a substring) are executed. -/
+def main (args : List String) : IO UInt32 := do
   let testsDir : FilePath := "tests"
+  let filters := args
 
   IO.println "# Running tests\n"
 
-  let projects ← findProjects testsDir
+  let allProjects ← findProjects testsDir
+
+  let projects := if filters.isEmpty then
+    allProjects
+  else
+    allProjects.filter fun p =>
+      let name := p.fileName.get!
+      filters.any fun f => (name.splitOn f).length >= 2
 
   if projects.isEmpty then
-    IO.println "No projects found!"
+    if filters.isEmpty then
+      IO.println "No projects found!"
+    else
+      IO.println s!"No projects matching {filters} found!"
     return 1
 
   let comparatorPath ← IO.FS.realPath <| ".lake" / "build" / "bin" / "comparator"
@@ -153,3 +187,4 @@ def main : IO UInt32 := do
   else
     IO.println "Some tests failed."
     return 1
+
