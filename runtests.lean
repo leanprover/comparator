@@ -151,9 +151,7 @@ def main (args : List String) : IO UInt32 := do
   let projects := if filters.isEmpty then
     allProjects
   else
-    allProjects.filter fun p =>
-      let name := p.fileName.get!
-      filters.any fun f => name.contains f
+    allProjects.filter fun p => filters.any (p.fileName.get!.contains ·)
 
   if projects.isEmpty then
     if filters.isEmpty then
@@ -187,4 +185,3 @@ def main (args : List String) : IO UInt32 := do
   else
     IO.println "Some tests failed."
     return 1
-
