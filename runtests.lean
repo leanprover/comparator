@@ -153,7 +153,7 @@ def main (args : List String) : IO UInt32 := do
   else
     allProjects.filter fun p =>
       let name := p.fileName.get!
-      filters.any fun f => (name.splitOn f).length >= 2
+      filters.any fun f => name.contains f
 
   if projects.isEmpty then
     if filters.isEmpty then
