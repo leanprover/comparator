@@ -69,4 +69,12 @@ def checkAxioms (solution : Export.ExportedEnv) (theoremTargets : Array Lean.Nam
   let legalAxioms := Std.HashSet.ofArray legalAxioms
   Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
 
+partial def getAxioms (env : Export.ExportedEnv) (n : Lean.Name) : Array Lean.Name :=
+  let rec collect (n : Lean.Name) : StateM (Std.HashSet Lean.Name) Unit := do
+    if !(← get).contains n then
+      modify (·.insert n)
+      if let some info := env.constMap[n]? then runForUsedConsts info collect
+  let (_, deps) := (collect n).run {}
+  deps.toArray.filter fun dep => match env.constMap[dep]? with | some (.axiomInfo _) => true | _ => false
+
 end Comparator
