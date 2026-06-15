@@ -3,11 +3,10 @@ Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
-import Lean
 import Comparator.Axioms
 import Export.Parse
 
-open Lean Meta
+open Lean
 
 namespace Comparator
 
@@ -46,7 +45,7 @@ def checkDisproof (chalType : Expr) (chalLevels : List Name) (solType : Expr) (s
   | .app (.const ``Not []) exp =>
     let subst := ((collectLevels chalType []).zip (collectLevels exp [])).foldl
       (fun acc (l1, l2) => matchLevel l1 l2 chalLevels acc) []
-    let levels := chalLevels.map fun n => (subst.lookup n).getD .zero
+    let levels := chalLevels.map fun n => (subst.lookup n).getD Level.zero
     chalType.instantiateLevelParams chalLevels levels ==
       exp.instantiateLevelParams solLevels (solLevels.map .param)
   | _ => false

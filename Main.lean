@@ -362,7 +362,6 @@ def M.run (x : M α) (cfg : Config) : IO α := do
 end Comparator
 
 def main (args : List String) : IO Unit := do
-  Lean.initSearchPath (← Lean.findSysroot)
   let some (configPath : String) := args[0]?
     | throw <| .userError "Expected config file path as first argument."
   let content ← IO.FS.readFile configPath
