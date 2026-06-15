@@ -131,8 +131,7 @@ theorem foo.disproof (h : TargetType) : False := by
   ...
 ```
 Equivalently, the disproof may have type `¬ TargetType`. Comparator accepts the disproof when its type
-is definitionally equal to `TargetTypeInstance → False`. To obtain `TargetType`, run `#check @target`,
-copy the complete type after the colon, and append `→ False`.
+is definitionally equal to `TargetTypeInstance → False`. To obtain `TargetType`, using `#check type_of% @target` will give useful information.
 
 `TargetTypeInstance` may instantiate the target theorem's universe parameters. This models the
 existential universe choice needed to refute a theorem that claims to hold polymorphically at every

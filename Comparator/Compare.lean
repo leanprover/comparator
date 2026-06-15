@@ -10,17 +10,6 @@ open Lean
 
 namespace Comparator
 
-inductive TheoremMode where
-  | direct
-  | disproof
-  deriving BEq, Inhabited, ToJson, Repr
-
-structure TheoremTarget where
-  challengeName : Name
-  solutionName : Name
-  mode : TheoremMode
-  deriving Inhabited, ToJson, Repr
-
 partial def matchLevel (l1 l2 : Level) (params : List Name) (subst : List (Name × Level)) : List (Name × Level) :=
   match l1, l2 with
   | .param n, _ => if params.contains n && !subst.any (·.1 == n) then (n, l2) :: subst else subst
@@ -104,37 +93,39 @@ def definitionHoleMatches (challengeHole solutionHole : Lean.DefinitionVal) : Bo
   challengeHole.toConstantVal == solutionHole.toConstantVal
     && challengeHole.safety == solutionHole.safety
 
-def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array TheoremTarget)
-    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) : Except String Unit := do
+def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array Lean.Name)
+    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) (allowDisproofs : Bool := false) : Except String Unit := do
   let mut worklist := primitive
 
   for target in theoremTargets do
-    let some challengeConst := challenge.constMap[target.challengeName]?
-      | throw s!"Const not found in challenge: '{target.challengeName}'"
-    let some solutionConst := solution.constMap[target.solutionName]?
-      | throw s!"Const not found in solution: '{target.solutionName}'"
+    let some challengeConst := challenge.constMap[target]?
+      | throw s!"Const not found in challenge: '{target}'"
 
     worklist := worklist ++ challengeConst.type.getUsedConstants
 
-    match target.mode with
-    | .direct =>
-      let (challengeVal, solutionVal) ←
+    let dname := target ++ `disproof
+    if allowDisproofs && solution.constMap[dname]?.isSome then
+      let some solutionConst := solution.constMap[dname]?
+        | unreachable!
+      let .thmInfo cc := challengeConst
+        | throw s!"Challenge target is not a theorem: '{target}'"
+      let .thmInfo sc := solutionConst
+        | throw s!"Solution disproof target is not a theorem: '{dname}'"
+
+      unless checkDisproof cc.type cc.levelParams sc.type sc.levelParams do
+        throw s!"Solution disproof statement does not match accepted disproof interface: '{dname}'"
+
+    else
+      let some solutionConst := solution.constMap[target]?
+        | throw s!"Const not found in solution: '{target}'"
+      let (challengeConst, solutionConst) ←
         match challengeConst, solutionConst with
         | .thmInfo cc, .thmInfo sc
         | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-        | _, _ => throw s!"Challenge and solution constant kind don't match: '{target.solutionName}'"
+        | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
 
-      if challengeVal != solutionVal then
-        throw s!"Challenge and solution theorem statement do not match: '{target.solutionName}'"
-
-    | .disproof =>
-      let .thmInfo cc := challengeConst
-        | throw s!"Challenge target is not a theorem: '{target.challengeName}'"
-      let .thmInfo sc := solutionConst
-        | throw s!"Solution disproof target is not a theorem: '{target.solutionName}'"
-
-      unless checkDisproof cc.type cc.levelParams sc.type sc.levelParams do
-        throw s!"Solution disproof statement does not match accepted disproof interface: '{target.solutionName}'"
+      if challengeConst != solutionConst then
+        throw s!"Challenge and solution theorem statement do not match: '{target}'"
 
   for target in definitionTargets do
     let some challengeConst := challenge.constMap[target]?

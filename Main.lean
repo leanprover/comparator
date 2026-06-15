@@ -245,17 +245,6 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
   }
   return IO.FS.Stream.ofBuffer ref
 
-def selectTheoremTarget (solution : Export.ExportedEnv) (name : Lean.Name)
-    (allowDisproofs : Bool) : Except String TheoremTarget := do
-  let directInfo := solution.constMap[name]?
-  let dname := name ++ `disproof
-  let disproofInfo := if allowDisproofs then solution.constMap[dname]? else none
-  match directInfo, disproofInfo with
-  | some _, some _ => throw s!"Both proof and disproof provided for theorem target: '{name}'"
-  | some _, none => return { challengeName := name, solutionName := name, mode := .direct }
-  | none, some _ => return { challengeName := name, solutionName := dname, mode := .disproof }
-  | none, none => throw s!"No proof or disproof provided for theorem target: '{name}'"
-
 def verifyMatch (challengeExport : String) (solutionExport : String) :
     M Unit := do
   let challenge ← Export.parseStream (← stringStream challengeExport)
@@ -264,14 +253,18 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let definitionNames ← getDefinitionNames
   let allowDisproofs ← getAllowDisproofs
   let legalAxioms ← getLegalAxioms
-  let mut targets := legalAxioms.map fun n => { challengeName := n, solutionName := n, mode := .direct }
-  let mut acceptedTheorems := #[]
-  for theoremName in theoremNames do
-    let target ← IO.ofExcept <| selectTheoremTarget solution theoremName allowDisproofs
-    targets := targets.push target
-    acceptedTheorems := acceptedTheorems.push target.solutionName
-  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
-  IO.ofExcept <| Comparator.checkAxioms solution acceptedTheorems definitionNames legalAxioms
+  let targets := theoremNames ++ legalAxioms
+
+  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets) allowDisproofs
+
+  let mut resolvedTheorems := #[]
+  for n in theoremNames do
+    if allowDisproofs && solution.constMap[n ++ `disproof]?.isSome then
+      resolvedTheorems := resolvedTheorems.push (n ++ `disproof)
+    else
+      resolvedTheorems := resolvedTheorems.push n
+
+  IO.ofExcept <| Comparator.checkAxioms solution resolvedTheorems definitionNames legalAxioms
   if ← getNanodaEnabled then
     runNanoda solutionExport
   runKernel solution
