@@ -143,9 +143,9 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) (quiet : Bool := f
     IO.println s!"Exporting {decls} from {module}"
   let args :=
     if decls.isEmpty then
-      #[module.toString]
+      #["--ignore-missing", module.toString]
     else
-      let baseArgs := #[module.toString, "--"]
+      let baseArgs := #["--ignore-missing", module.toString, "--"]
       decls.foldl (·.push <| ·.toString) baseArgs
 
   let leanPrefix ← getLeanPrefix
@@ -285,13 +285,6 @@ def verifyMatch (challengeExport : String) (solutionExport : String)
 def getTargets (theorems definitions : Array Lean.Name) : M (Array Lean.Name) := do
   return (← builtinTargets) ++ theorems ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ definitions
 
-def tryExport (module : Lean.Name) (decls : Array Lean.Name) : M Bool := do
-  try
-    let _ ← safeExport module decls true
-    return true
-  catch _ =>
-    return false
-
 def compareIt : M Unit := do
   let theoremNames ← getTheoremNames
   let definitionNames ← getDefinitionNames
@@ -303,17 +296,9 @@ def compareIt : M Unit := do
 
   let solutionModule ← getSolutionModule
   safeLakeBuild solutionModule
-  let selectedTargets : Array TheoremTarget ← theoremNames.mapM fun theoremName => do
-    if allowDisproofs then
-      let disproofName := theoremName ++ `disproof
-      let hasDisproof ← tryExport solutionModule #[disproofName]
-      let hasDirect ← tryExport solutionModule #[theoremName]
-      if hasDisproof && hasDirect then
-        throw <| .userError s!"Both proof and disproof provided for theorem target: '{theoremName}'"
-      if hasDisproof then
-        return { challengeName := theoremName, solutionName := disproofName, mode := .disproof }
-    return { challengeName := theoremName, solutionName := theoremName, mode := .direct }
-  let solutionExport ← safeExport solutionModule (← getTargets (selectedTargets.map (·.solutionName)) definitionNames)
+
+  let potentialSolutionDecls := theoremNames ++ (if allowDisproofs then theoremNames.map (· ++ `disproof) else #[])
+  let solutionExport ← safeExport solutionModule (← getTargets potentialSolutionDecls definitionNames)
 
   let result ← verifyMatch challengeExport solutionExport theoremNames
   let verifiedSolutionExport ← safeExport solutionModule (← getTargets result.acceptedTheorems definitionNames)

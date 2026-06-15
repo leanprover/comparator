@@ -15,6 +15,6 @@ name = "Lean4Checker"
 rev = "b7398199245524275543dec6113229c9bb4902e5"
 
 [[require]]
-scope = "leanprover"
 name = "lean4export"
-rev = "master"
+git = "https://github.com/augustepoiroux/lean4export"
+rev = "d17578b17b86a30986e4536284c32e90b9b52812"
