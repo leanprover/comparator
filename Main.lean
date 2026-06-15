@@ -245,25 +245,17 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
 @[inline]
 def getJsonOutputPath : M (Option String) := do return (← read).jsonOutputPath
 
-abbrev DepM := StateM (Std.HashSet Lean.Name)
-
-partial def collectDeps (env : Export.ExportedEnv) (n : Lean.Name) : DepM Unit := do
-  if (← get).contains n then
-    return
-  modify (·.insert n)
-  if let some info := env.constMap[n]? then
-    Comparator.runForUsedConsts info (collectDeps env)
-
-def getAxioms (env : Export.ExportedEnv) (n : Lean.Name) : Array Lean.Name := Id.run do
-  let (_, deps) := (collectDeps env n).run {}
-  return deps.toArray.filter fun dep => match env.constMap[dep]? with
-    | some (.axiomInfo _) => true
-    | _ => false
+partial def getAxioms (env : Export.ExportedEnv) (n : Lean.Name) : Array Lean.Name :=
+  let rec collect (n : Lean.Name) : StateM (Std.HashSet Lean.Name) Unit := do
+    if !(← get).contains n then
+      modify (·.insert n)
+      if let some info := env.constMap[n]? then Comparator.runForUsedConsts info collect
+  let (_, deps) := (collect n).run {}
+  deps.toArray.filter fun dep => match env.constMap[dep]? with | some (.axiomInfo _) => true | _ => false
 
 structure VerificationOutcome where
   target : Lean.Name
   targetKind : String
-  accepted : Bool
   failureCategory : Option String
   failureMessage : Option String
   unpermittedAxioms : Array Lean.Name
@@ -278,114 +270,70 @@ structure VerifyResult where
   nanodaFailureMessage : Option String := none
   deriving Lean.ToJson
 
-def outcome (solution : Export.ExportedEnv) (target : Lean.Name) (targetKind : String)
-    (legalAxioms : Array Lean.Name) (accepted : Bool)
-    (failureCategory : Option String := none) (failureMessage : Option String := none) :
-    VerificationOutcome :=
-  let transitiveAxioms := getAxioms solution target
-  let unpermittedAxioms := transitiveAxioms.filter fun ax => !legalAxioms.contains ax
-  { target, targetKind, accepted, failureCategory, failureMessage, unpermittedAxioms, transitiveAxioms }
+def outcome (sol : Export.ExportedEnv) (target : Lean.Name) (kind : String) (legal : Array Lean.Name)
+    (cat msg : Option String := none) : VerificationOutcome :=
+  let transitiveAxioms := getAxioms sol target
+  let unpermittedAxioms := transitiveAxioms.filter (!legal.contains ·)
+  { target, targetKind := kind, failureCategory := cat, failureMessage := msg, unpermittedAxioms, transitiveAxioms }
 
-def writeReport (result : VerifyResult) : M Unit := do
-  if let some path ← getJsonOutputPath then
-    IO.FS.writeFile path (Lean.Json.compress <| Lean.toJson result)
+def writeReport (report : VerifyResult) : M Unit := do
+  if let some p ← getJsonOutputPath then IO.FS.writeFile p (Lean.Json.compress <| Lean.toJson report)
 
-def throwFailures (header : String) (failures : Array (Lean.Name × String)) : M α := do
-  let mut msg := header
-  for (name, failure) in failures do
-    msg := msg ++ s!"- {name}: {failure}\n"
-  throw <| .userError msg
+def throwFailures (header : String) (failures : Array (Lean.Name × String)) : M α :=
+  throw <| .userError <| failures.foldl (fun acc (n, f) => acc ++ s!"- {n}: {f}\n") header
 
-def verifyMatch (challengeExport : String) (solutionExport : String) :
-    M VerifyResult := do
+def verifyMatch (challengeExport : String) (solutionExport : String) : M VerifyResult := do
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
-  let theoremNames ← getTheoremNames
-  let definitionNames ← getDefinitionNames
-  let legalAxioms ← getLegalAxioms
+  let theoremNames ← getTheoremNames; let definitionNames ← getDefinitionNames; let legalAxioms ← getLegalAxioms
 
   if let .error e := Comparator.compareAt challenge solution legalAxioms #[] (← primitiveTargets) then
-    let outcomes :=
-      theoremNames.map (outcome solution · "theorem" legalAxioms false (some "global_precheck") (some e)) ++
-      definitionNames.map (outcome solution · "definition" legalAxioms false (some "global_precheck") (some e))
-    writeReport { outcomes }
-    throw <| .userError e
+    let outcomes := theoremNames.map (outcome solution · "theorem" legalAxioms (some "global_precheck") (some e)) ++
+                    definitionNames.map (outcome solution · "definition" legalAxioms (some "global_precheck") (some e))
+    writeReport { outcomes }; throw <| .userError e
 
-  let mut outcomes := #[]
-  let mut failures := #[]
+  let check (kind : String) (name : Lean.Name) : M VerificationOutcome := do
+    let (t, d) := if kind == "theorem" then (#[name], definitionNames) else (#[], #[name])
+    let (fail, cat) := match Comparator.compareAt challenge solution t d #[] with
+      | .error e => (some e, some "comparison")
+      | .ok () => match Comparator.checkAxioms solution t d legalAxioms with
+        | .error e => (some e, some "axioms")
+        | .ok () => (none, none)
+    return outcome solution name kind legalAxioms cat fail
 
-  let allTargets :=
-    theoremNames.map (·, "theorem") ++
-    definitionNames.map (·, "definition")
-
-  for (name, kind) in allTargets do
-    let (theoremTargets, definitionTargets) := match kind with
-      | "theorem" => (#[name], definitionNames)
-      | _ => (#[], #[name])
-    let (failure, category) ← match Comparator.compareAt challenge solution theoremTargets definitionTargets #[] with
-      | .error e => pure (some e, some "comparison")
-      | .ok () =>
-        match Comparator.checkAxioms solution theoremTargets definitionTargets legalAxioms with
-        | .error e => pure (some e, some "axioms")
-        | .ok () => pure (none, none)
-    outcomes := outcomes.push <| outcome solution name kind legalAxioms failure.isNone category failure
-    if let some e := failure then
-      failures := failures.push (name, kind, e)
-
+  let outcomes := (← theoremNames.mapM (check "theorem")) ++ (← definitionNames.mapM (check "definition"))
   let result := { outcomes }
   writeReport result
 
-  let definitionFailures := failures.filter (·.2.1 == "definition") |>.map (fun (n, _, e) => (n, e))
-  let theoremFailures := failures.filter (·.2.1 == "theorem") |>.map (fun (n, _, e) => (n, e))
-
-  if !definitionFailures.isEmpty then
-    throwFailures "Some definition targets failed:\n" definitionFailures
-  if !theoremFailures.isEmpty then
-    throwFailures "Some theorem targets failed:\n" theoremFailures
-
+  let fails := outcomes.filter (·.failureCategory.isSome)
+  if !fails.isEmpty then
+    let defFails := fails.filter (·.targetKind == "definition") |>.map fun o => (o.target, o.failureMessage.get!)
+    let thmFails := fails.filter (·.targetKind == "theorem") |>.map fun o => (o.target, o.failureMessage.get!)
+    if !defFails.isEmpty then throwFailures "Some definition targets failed:\n" defFails
+    if !thmFails.isEmpty then throwFailures "Some theorem targets failed:\n" thmFails
   return result
 
-def getTargets (theorems definitions : Array Lean.Name) : M (Array Lean.Name) := do
-  return (← builtinTargets) ++ theorems ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ definitions
-
 def compareIt : M Unit := do
-  let theoremNames ← getTheoremNames
-  let definitionNames ← getDefinitionNames
-
-  let challengeModule ← getChallengeModule
-  safeLakeBuild challengeModule
-  let challengeExport ← safeExport challengeModule (← getTargets theoremNames definitionNames)
-
-  let solutionModule ← getSolutionModule
-  safeLakeBuild solutionModule
-  let solutionExport ← safeExport solutionModule (← getTargets theoremNames definitionNames)
+  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ (← getDefinitionNames)
+  safeLakeBuild (← getChallengeModule)
+  let challengeExport ← safeExport (← getChallengeModule) exportTargets
+  safeLakeBuild (← getSolutionModule)
+  let solutionExport ← safeExport (← getSolutionModule) exportTargets
 
   let mut result ← verifyMatch challengeExport solutionExport
-  let mut nanodaError : Option IO.Error := none
-  let mut kernelError : Option IO.Error := none
+  let mut errs := #[]
+  let runCheck (run : M Unit) (update : VerifyResult → Bool → Option String → VerifyResult) (r : VerifyResult) (errs : Array IO.Error) : M (VerifyResult × Array IO.Error) := do
+    try run; return (update r true none, errs)
+    catch e => return (update r false (some e.toString), errs.push e)
 
   if ← getNanodaEnabled then
-    try
-      runNanoda solutionExport
-      result := { result with nanodaAccepted := some true }
-    catch e =>
-      result := { result with nanodaAccepted := some false, nanodaFailureMessage := some e.toString }
-      nanodaError := some e
+    (result, errs) ← runCheck (runNanoda solutionExport) (fun r acc msg => { r with nanodaAccepted := some acc, nanodaFailureMessage := msg }) result errs
 
-  try
-    let verifiedSolution ← Export.parseStream (← stringStream solutionExport)
-    runKernel verifiedSolution
-    result := { result with kernelAccepted := some true }
-  catch e =>
-    result := { result with kernelAccepted := some false, kernelFailureMessage := some e.toString }
-    kernelError := some e
+  let runK := do runKernel (← Export.parseStream (← stringStream solutionExport))
+  (result, errs) ← runCheck runK (fun r acc msg => { r with kernelAccepted := some acc, kernelFailureMessage := msg }) result errs
 
   writeReport result
-
-  if let some e := nanodaError then
-    throw e
-  if let some e := kernelError then
-    throw e
+  if !errs.isEmpty then throw errs[0]!
 
   IO.println "Your solution is okay!"
 

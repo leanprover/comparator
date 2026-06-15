@@ -5,7 +5,6 @@
             {
                 "target": "expected",
                 "targetKind": "definition",
-                "accepted": false,
                 "failureCategory": "comparison",
                 "failureMessage": "Const does not match between challenge and target 'expected'",
                 "unpermittedAxioms": [],

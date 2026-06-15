@@ -5,7 +5,6 @@
             {
                 "target": "expected",
                 "targetKind": "theorem",
-                "accepted": true,
                 "failureCategory": null,
                 "failureMessage": null,
                 "unpermittedAxioms": [],

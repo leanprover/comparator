@@ -104,23 +104,13 @@ def runTestProject (projectPath : FilePath) (projectName : String) (testsDir : F
 
     let exitCode ← runCommandInDir tempDir "lake" #["env", comparatorPath.toString, "config.json"]
 
-    let projectConfig := Lean.Json.parse (← IO.FS.readFile (tempDir / "config.json"))
-      |>.toOption.getD .null
-    if let .ok jsonOutputPath := projectConfig.getObjValAs? String "json_output_path" then
-      let outputPath := tempDir / jsonOutputPath
-      if !(← outputPath.pathExists) then
-        IO.FS.removeDirAll tempDir
-        return TestResult.error projectName s!"json_output_path file '{jsonOutputPath}' was not created"
-      let output ← IO.FS.readFile outputPath
-      let outputJson ← match Lean.Json.parse output with
-        | .error e =>
-          IO.FS.removeDirAll tempDir
-          return TestResult.error projectName s!"json_output_path file '{jsonOutputPath}' contains invalid JSON: {e}"
-        | .ok j => pure j
+    let projectConfig := Lean.Json.parse (← IO.FS.readFile (tempDir / "config.json")) |>.toOption.getD .null
+    if let .ok jsonOut := projectConfig.getObjValAs? String "json_output_path" then
+      let outputJson ← IO.ofExcept <| Lean.Json.parse (← IO.FS.readFile (tempDir / jsonOut))
       if let some expectedJson := config.expected_json_output then
         if outputJson != expectedJson then
           IO.FS.removeDirAll tempDir
-          return TestResult.error projectName s!"json_output_path file '{jsonOutputPath}' content does not match expected JSON.\nExpected: {expectedJson}\nGot: {outputJson}"
+          return .error projectName s!"JSON mismatch.\nExpected: {expectedJson}\nGot: {outputJson}"
 
     IO.FS.removeDirAll tempDir
 
