@@ -247,37 +247,23 @@ def writeReport (report : VerificationReport) : M Unit := do
   if let some p := (← read).jsonOutputPath then
     IO.FS.writeFile p (Lean.Json.compress <| Lean.toJson report)
 
-structure VerifyState where
-  compareCache : Std.HashSet Lean.Name := {}
-  axiomCache : Comparator.AxiomCache := {}
-
 def verifyOneTarget (challenge solution : Export.ExportedEnv) (target : Lean.Name)
-    (targetKind : String) : StateT VerifyState M TargetReport := do
+    (targetKind : String) : M TargetReport := do
   let legalAxioms ← getLegalAxioms
   let defNames ← getDefinitionNames
   let primitives ← primitiveTargets
   let (thmTargets, defTargets) :=
     if targetKind == "theorem" then (#[target], defNames) else (#[], #[target])
 
-  let currentState ← get
-  let (failureCategory, failureMessage, nextState) :=
-    match Comparator.compareAt
-        challenge solution thmTargets defTargets primitives currentState.compareCache with
-    | .error (failCat, errorMsg) => (some failCat, some errorMsg, currentState)
-    | .ok compareCache =>
-      match Comparator.checkAxioms
-          solution thmTargets defTargets legalAxioms currentState.axiomCache with
-      | .error errorMsg =>
-        (some CheckFailure.axioms, some errorMsg, { compareCache, axiomCache := currentState.axiomCache })
-      | .ok axiomCache => (none, none, { compareCache, axiomCache })
+  let (failureCategory, failureMessage) :=
+    match Comparator.compareAt challenge solution thmTargets defTargets primitives with
+    | .error (failCat, errorMsg) => (some failCat, some errorMsg)
+    | .ok _ =>
+      match Comparator.checkAxioms solution thmTargets defTargets legalAxioms with
+      | .error errorMsg => (some CheckFailure.axioms, some errorMsg)
+      | .ok () => (none, none)
 
-  set nextState
-  let transitiveAxioms :=
-    match Comparator.getAxioms solution target nextState.axiomCache with
-    | .ok (_, axioms) => axioms
-    | .error _ => #[]
-  let unpermittedAxioms := transitiveAxioms.filter (!legalAxioms.contains ·)
-  return { targetName := target, targetKind, failureCategory, failureMessage, unpermittedAxioms, transitiveAxioms }
+  return { targetName := target, targetKind, failureCategory, failureMessage }
 
 def verifyMatch (challengeExport : String) (solutionExport : String) :
     M Unit := do
@@ -285,7 +271,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let solution ← Export.parseStream (← stringStream solutionExport)
 
   let allTargets := (← getTheoremNames).map (·, "theorem") ++ (← getDefinitionNames).map (·, "definition")
-  let (reports, _) ← (allTargets.mapM fun (n, k) => verifyOneTarget challenge solution n k).run {}
+  let reports ← allTargets.mapM fun (n, k) => verifyOneTarget challenge solution n k
   let mut result : VerificationReport := { reports }
   writeReport result
 
@@ -293,7 +279,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   if !fails.isEmpty then
     let msg := fails.foldl (init := "Some targets failed:\n") fun acc o =>
       acc ++ s!"- {o.targetName}: {o.failureMessage.get!}\n"
-    throw <| .userError msg
+    throw <| IO.userError msg
 
   let mut errs := #[]
   if ← getNanodaEnabled then
@@ -301,14 +287,14 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
       runNanoda solutionExport
       result := { result with nanoda := { accepted := some true } }
     catch e =>
-      result := { result with nanoda := { accepted := some false, failureMessage := some e.toString } }
+      result := { result with nanoda := { accepted := some false, failureMessage := some (toString e) } }
       errs := errs.push e
 
   try
     runKernel (← Export.parseStream (← stringStream solutionExport))
     result := { result with kernel := { accepted := some true } }
   catch e =>
-    result := { result with kernel := { accepted := some false, failureMessage := some e.toString } }
+    result := { result with kernel := { accepted := some false, failureMessage := some (toString e) } }
     errs := errs.push e
 
   writeReport result

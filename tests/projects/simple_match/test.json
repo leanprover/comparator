@@ -1,3 +1,8 @@
 {
-        "exit_code": 0
+    "exit_code": 0,
+    "expected_json_output": {
+        "reports": [{ "targetName": "comm", "targetKind": "theorem", "failureCategory": null, "failureMessage": null }],
+        "nanoda": { "failureMessage": null, "accepted": null },
+        "kernel": { "failureMessage": null, "accepted": true }
+    }
 }

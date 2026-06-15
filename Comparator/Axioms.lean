@@ -8,54 +8,65 @@ import Export.Parse
 
 namespace Comparator
 
-abbrev AxiomCache := Std.HashMap Lean.Name Lean.NameSet
+namespace Axioms
 
-partial def getAxioms (env : Export.ExportedEnv) (targetName : Lean.Name)
-    (cache : AxiomCache := {}) : Except String (AxiomCache × Array Lean.Name) := do
-  let rec collect (n : Lean.Name) : StateT AxiomCache (Except String) Lean.NameSet := do
-    if let some cached := (← get)[n]? then
-      return cached
-    let some info := env.constMap[n]?
+structure Context where
+  solution : Export.ExportedEnv
+  legalAxioms : Std.HashSet Lean.Name
+
+structure State where
+  worklist : Array Lean.Name
+  checked : Std.HashSet Lean.Name
+
+abbrev AxiomsM := ReaderT Context <| StateT State <| Except String
+
+partial def loop : AxiomsM Unit := do
+  if (← get).worklist.isEmpty then
+    return ()
+
+  let target ← modifyGet fun s => (s.worklist.back!, { s with worklist := s.worklist.pop })
+  if (← get).checked.contains target then
+    loop
+  else
+    let some info := (← read).solution.constMap[target]?
+      | throw s!"Constant not found in solution '{target}'"
+
+    runForUsedConsts info validateConst
+
+    modify fun s => { s with checked := s.checked.insert target }
+    loop
+where
+  validateConst (n : Lean.Name) : AxiomsM Unit := do
+    let some info := (← read).solution.constMap[n]?
       | throw s!"Constant not found in solution '{n}'"
 
-    let res ← if let .axiomInfo _ := info then
-      pure {n}
-    else
-      modify (·.insert n {})
-      let foldOne (c : Lean.Name) :
-          StateT Lean.NameSet (StateT AxiomCache (Except String)) Unit := do
-        let s ← liftM (collect c)
-        modify (·.merge s)
-      runForUsedConsts info foldOne |>.run {} |>.map (·.2)
+    if let .axiomInfo info := info then
+      if !(← read).legalAxioms.contains info.name then
+        throw s!"Illegal axiom detected: '{n}'"
 
-    modify (·.insert n res)
-    return res
+    if !(← get).checked.contains n then
+      modify fun s => { s with worklist := s.worklist.push n }
 
-  let (resSet, updatedCache) ← collect targetName |>.run cache
-  return (updatedCache, resSet.toArray)
+end Axioms
 
 def checkAxioms (solution : Export.ExportedEnv) (theoremTargets : Array Lean.Name)
-    (definitionTargets : Array Lean.Name) (legalAxioms : Array Lean.Name)
-    (cache : AxiomCache := {}) : Except String AxiomCache := do
-  let legalAxiomsSet := Std.HashSet.ofArray legalAxioms
-
-  let checkTarget (isTheorem : Bool) (target : Lean.Name) :
-      StateT AxiomCache (Except String) Unit := do
-    let some const := solution.constMap[target]?
+    (definitionTargets : Array Lean.Name) (legalAxioms : Array Lean.Name) : Except String Unit := do
+  let mut worklist := #[]
+  for target in theoremTargets do
+    let some solutionConst := solution.constMap[target]?
       | throw s!"Const not found in solution: '{target}'"
-    match isTheorem, const with
-    | true, .thmInfo _ | false, .defnInfo _ =>
-      let (nextCache, axioms) ← liftM <| getAxioms solution target (← get)
-      set nextCache
-      for ax in axioms do
-        if !legalAxiomsSet.contains ax then
-          throw s!"Illegal axiom detected: '{ax}'"
-    | true, _ => throw s!"Solution constant is not a theorem: '{target}'"
-    | false, _ => throw s!"Solution constant is not a definition: '{target}'"
+    let .thmInfo solutionConst := solutionConst
+      | throw s!"Solution constant is not a theorem: '{target}'"
+    worklist := worklist.push solutionConst.name
 
-  let ((), finalCache) ← (do
-    theoremTargets.forM (checkTarget true)
-    definitionTargets.forM (checkTarget false)).run cache
-  return finalCache
+  for target in definitionTargets do
+    let some solutionConst := solution.constMap[target]?
+      | throw s!"Const not found in solution: '{target}'"
+    let .defnInfo solutionConst := solutionConst
+      | throw s!"Solution constant is not a definition: '{target}'"
+    worklist := worklist.push solutionConst.name
+
+  let legalAxioms := Std.HashSet.ofArray legalAxioms
+  Axioms.loop.run { solution, legalAxioms } |>.run' { worklist, checked := {} }
 
 end Comparator

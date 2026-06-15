@@ -111,6 +111,9 @@ def runTestProject (projectPath : FilePath) (projectName : String) (testsDir : F
         if outputJson != expectedJson then
           IO.FS.removeDirAll tempDir
           return .error projectName s!"JSON mismatch.\nExpected: {expectedJson}\nGot: {outputJson}"
+      else
+        IO.FS.removeDirAll tempDir
+        return .error projectName s!"Configuration specifies 'json_output_path' but test.json is missing 'expected_json_output'."
 
     IO.FS.removeDirAll tempDir
 

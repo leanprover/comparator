@@ -3,6 +3,7 @@
     "solution_module": "Solution",
     "theorem_names": ["foo"],
     "definition_names": ["n"],
+    "json_output_path": "verification-report.json",
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
     "enable_nanoda": false
 }

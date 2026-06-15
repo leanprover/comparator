@@ -30,8 +30,6 @@ structure TargetReport where
   targetKind : String
   failureCategory : Option CheckFailure
   failureMessage : Option String
-  unpermittedAxioms : Array Lean.Name
-  transitiveAxioms : Array Lean.Name
   deriving Lean.ToJson, Inhabited, Repr
 
 structure VerificationReport where
