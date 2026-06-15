@@ -26,7 +26,7 @@ Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sor
 and `Solution.lean` is provided by a party trying to convince you that they have proven `todo1` by
 writing out the same theorem but with a proper proof attached.
 
-Set `allow_disproofs` to `true` to allow a theorem target `foo` to be replaced by `foo.disproof`.
+Set `allow_disproofs` to `true` to allow solutions to provide disproofs of theorem targets.
 
 Given the following assumptions:
 1. The transitive closure of imports of `Challenge.lean` as well as `lakefile.toml`/`lakefile.lean`
@@ -130,12 +130,8 @@ suffix:
 theorem foo.disproof (h : TargetType) : False := by
   ...
 ```
-Equivalently, the disproof may have type `¬ TargetType`. Comparator accepts the disproof when its type
-is definitionally equal to `TargetTypeInstance → False`. To obtain `TargetType`, using `#check type_of% @target` will give useful information.
-
-`TargetTypeInstance` may instantiate the target theorem's universe parameters. This models the
-existential universe choice needed to refute a theorem that claims to hold polymorphically at every
-universe level.
+To obtain `TargetType`, using `#check type_of% @target` often gives useful information.
+You may instantiate the target theorem's universe parameters for the disproof target.
 
 ## Development
 
