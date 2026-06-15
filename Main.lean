@@ -263,29 +263,46 @@ def writeReport (report : VerificationReport) : M Unit := do
   if let some p := (← read).jsonOutputPath then
     IO.FS.writeFile p (Lean.Json.compress <| Lean.toJson report)
 
+structure VerifyState where
+  compareCache : Std.HashSet Lean.Name := {}
+  axiomCache : Comparator.AxiomCache := {}
+
+def verifyOneTarget (challenge solution : Export.ExportedEnv) (target : Lean.Name)
+    (targetKind : String) : StateT VerifyState M TargetReport := do
+  let legalAxioms ← getLegalAxioms
+  let defNames ← getDefinitionNames
+  let primitives ← primitiveTargets
+  let (thmTargets, defTargets) :=
+    if targetKind == "theorem" then (#[target], defNames) else (#[], #[target])
+
+  let currentState ← get
+  let (failureCategory, failureMessage, nextState) :=
+    match Comparator.compareAt
+        challenge solution thmTargets defTargets primitives currentState.compareCache with
+    | .error errorMsg => (some "comparison", some errorMsg, currentState)
+    | .ok compareCache =>
+      match Comparator.checkAxioms
+          solution thmTargets defTargets legalAxioms currentState.axiomCache with
+      | .error errorMsg =>
+        (some "axioms", some errorMsg, { compareCache, axiomCache := currentState.axiomCache })
+      | .ok axiomCache => (none, none, { compareCache, axiomCache })
+
+  set nextState
+  let transitiveAxioms :=
+    match Comparator.getAxioms solution target nextState.axiomCache with
+    | .ok (_, axioms) => axioms
+    | .error _ => #[]
+  let unpermittedAxioms := transitiveAxioms.filter (!legalAxioms.contains ·)
+  return { target, targetKind, failureCategory, failureMessage, unpermittedAxioms, transitiveAxioms }
+
 def verifyMatch (challengeExport : String) (solutionExport : String) :
     M Unit := do
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
-  let theoremNames ← getTheoremNames
-  let definitionNames ← getDefinitionNames
-  let legalAxioms ← getLegalAxioms
 
-  let targetReport n k cat msg :=
-    let transitiveAxioms := Comparator.getAxioms solution n
-    let unpermittedAxioms := transitiveAxioms.filter (!legalAxioms.contains ·)
-    { target := n, targetKind := k, failureCategory := cat, failureMessage := msg, unpermittedAxioms, transitiveAxioms : TargetReport }
-
-  let reports ← (theoremNames.map (·, "theorem") ++ definitionNames.map (·, "definition")).mapM fun (n, k) => do
-    let (t, d) := if k == "theorem" then (#[n], definitionNames) else (#[], #[n])
-    let (cat, msg) := match Comparator.compareAt challenge solution t d (← primitiveTargets) with
-      | .error e => (some "comparison", some e)
-      | .ok () => match Comparator.checkAxioms solution t d legalAxioms with
-        | .error e => (some "axioms", some e)
-        | .ok () => (none, none)
-    return targetReport n k cat msg
-
-  let mut result := { reports }
+  let allTargets := (← getTheoremNames).map (·, "theorem") ++ (← getDefinitionNames).map (·, "definition")
+  let (reports, _) ← (allTargets.mapM fun (n, k) => verifyOneTarget challenge solution n k).run {}
+  let mut result := { reports : VerificationReport }
   writeReport result
 
   let fails := reports.filter (·.failureCategory.isSome)
@@ -296,18 +313,23 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
 
   let mut errs := #[]
   if ← getNanodaEnabled then
-    try runNanoda solutionExport
-        result := { result with nanodaAccepted := some true }
-    catch e => result := { result with nanodaAccepted := some false, nanodaFailureMessage := some e.toString }
-               errs := errs.push e
+    try
+      runNanoda solutionExport
+      result := { result with nanodaAccepted := some true }
+    catch e =>
+      result := { result with nanodaAccepted := some false, nanodaFailureMessage := some e.toString }
+      errs := errs.push e
 
-  try runKernel (← Export.parseStream (← stringStream solutionExport))
-      result := { result with kernelAccepted := some true }
-  catch e => result := { result with kernelAccepted := some false, kernelFailureMessage := some e.toString }
-             errs := errs.push e
+  try
+    runKernel (← Export.parseStream (← stringStream solutionExport))
+    result := { result with kernelAccepted := some true }
+  catch e =>
+    result := { result with kernelAccepted := some false, kernelFailureMessage := some e.toString }
+    errs := errs.push e
 
   writeReport result
-  if !errs.isEmpty then throw errs[0]!
+  if !errs.isEmpty then
+    throw errs[0]!
 
 def compareIt : M Unit := do
   let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)

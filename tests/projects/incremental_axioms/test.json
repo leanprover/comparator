@@ -1,0 +1,35 @@
+{
+    "exit_code": 1,
+    "expected_json_output": {
+        "reports": [
+            {
+                "target": "t1",
+                "targetKind": "theorem",
+                "failureCategory": null,
+                "failureMessage": null,
+                "unpermittedAxioms": [],
+                "transitiveAxioms": ["axA"]
+            },
+            {
+                "target": "t2",
+                "targetKind": "theorem",
+                "failureCategory": null,
+                "failureMessage": null,
+                "unpermittedAxioms": [],
+                "transitiveAxioms": ["axA", "axB"]
+            },
+            {
+                "target": "t3",
+                "targetKind": "theorem",
+                "failureCategory": "axioms",
+                "failureMessage": "Illegal axiom detected: 'axC'",
+                "unpermittedAxioms": ["axC"],
+                "transitiveAxioms": ["axC", "axB"]
+            }
+        ],
+        "nanodaFailureMessage": null,
+        "nanodaAccepted": null,
+        "kernelFailureMessage": null,
+        "kernelAccepted": null
+    }
+}

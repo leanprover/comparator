@@ -1,0 +1,8 @@
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": ["t1", "t2", "t3"],
+    "json_output_path": "verification-report.json",
+    "permitted_axioms": ["axA", "axB", "propext", "Quot.sound", "Classical.choice"],
+    "enable_nanoda": false
+}

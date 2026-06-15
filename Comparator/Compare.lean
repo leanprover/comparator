@@ -63,7 +63,8 @@ def definitionHoleMatches (challengeHole solutionHole : Lean.DefinitionVal) : Bo
     && challengeHole.safety == solutionHole.safety
 
 def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array Lean.Name)
-    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) : Except String Unit := do
+    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name)
+    (checked : Std.HashSet Lean.Name := {}) : Except String (Std.HashSet Lean.Name) := do
   let mut worklist := primitive
 
   for target in theoremTargets do
@@ -102,6 +103,7 @@ def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array 
     worklist := worklist.push solutionConst.name
 
   let definitionTargets := Std.HashSet.ofArray definitionTargets
-  Compare.loop.run { challenge, solution, definitionTargets } |>.run' { worklist, checked := {} }
+  let (_, s) ← Compare.loop.run { challenge, solution, definitionTargets } |>.run { worklist, checked }
+  return s.checked
 
 end Comparator
