@@ -3,7 +3,7 @@
     "expected_json_output": {
         "reports": [
             {
-                "target": "expected",
+                "targetName": "expected",
                 "targetKind": "theorem",
                 "failureCategory": null,
                 "failureMessage": null,
@@ -11,9 +11,13 @@
                 "transitiveAxioms": []
             }
         ],
-        "kernelAccepted": true,
-        "kernelFailureMessage": null,
-        "nanodaAccepted": null,
-        "nanodaFailureMessage": null
+        "nanoda": {
+            "failureMessage": null,
+            "accepted": null
+        },
+        "kernel": {
+            "failureMessage": null,
+            "accepted": true
+        }
     }
 }

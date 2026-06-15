@@ -3,17 +3,21 @@
     "expected_json_output": {
         "reports": [
             {
-                "target": "expected",
+                "targetName": "expected",
                 "targetKind": "definition",
-                "failureCategory": "comparison",
+                "failureCategory": "signature",
                 "failureMessage": "Const does not match between challenge and target 'expected'",
                 "unpermittedAxioms": [],
                 "transitiveAxioms": []
             }
         ],
-        "kernelAccepted": null,
-        "kernelFailureMessage": null,
-        "nanodaAccepted": null,
-        "nanodaFailureMessage": null
+        "nanoda": {
+            "failureMessage": null,
+            "accepted": null
+        },
+        "kernel": {
+            "failureMessage": null,
+            "accepted": null
+        }
     }
 }

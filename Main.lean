@@ -5,6 +5,7 @@ Authors: Henrik Böving
 -/
 import Lean
 import Comparator
+import Comparator.Json
 import Lean4Checker.Replay
 import Export.Parse
 
@@ -242,23 +243,6 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
   }
   return IO.FS.Stream.ofBuffer ref
 
-structure TargetReport where
-  target : Lean.Name
-  targetKind : String
-  failureCategory : Option String
-  failureMessage : Option String
-  unpermittedAxioms : Array Lean.Name
-  transitiveAxioms : Array Lean.Name
-  deriving Lean.ToJson
-
-structure VerificationReport where
-  reports : Array TargetReport
-  kernelAccepted : Option Bool := none
-  kernelFailureMessage : Option String := none
-  nanodaAccepted : Option Bool := none
-  nanodaFailureMessage : Option String := none
-  deriving Lean.ToJson
-
 def writeReport (report : VerificationReport) : M Unit := do
   if let some p := (← read).jsonOutputPath then
     IO.FS.writeFile p (Lean.Json.compress <| Lean.toJson report)
@@ -279,12 +263,12 @@ def verifyOneTarget (challenge solution : Export.ExportedEnv) (target : Lean.Nam
   let (failureCategory, failureMessage, nextState) :=
     match Comparator.compareAt
         challenge solution thmTargets defTargets primitives currentState.compareCache with
-    | .error errorMsg => (some "comparison", some errorMsg, currentState)
+    | .error (failCat, errorMsg) => (some failCat, some errorMsg, currentState)
     | .ok compareCache =>
       match Comparator.checkAxioms
           solution thmTargets defTargets legalAxioms currentState.axiomCache with
       | .error errorMsg =>
-        (some "axioms", some errorMsg, { compareCache, axiomCache := currentState.axiomCache })
+        (some CheckFailure.axioms, some errorMsg, { compareCache, axiomCache := currentState.axiomCache })
       | .ok axiomCache => (none, none, { compareCache, axiomCache })
 
   set nextState
@@ -293,7 +277,7 @@ def verifyOneTarget (challenge solution : Export.ExportedEnv) (target : Lean.Nam
     | .ok (_, axioms) => axioms
     | .error _ => #[]
   let unpermittedAxioms := transitiveAxioms.filter (!legalAxioms.contains ·)
-  return { target, targetKind, failureCategory, failureMessage, unpermittedAxioms, transitiveAxioms }
+  return { targetName := target, targetKind, failureCategory, failureMessage, unpermittedAxioms, transitiveAxioms }
 
 def verifyMatch (challengeExport : String) (solutionExport : String) :
     M Unit := do
@@ -302,29 +286,29 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
 
   let allTargets := (← getTheoremNames).map (·, "theorem") ++ (← getDefinitionNames).map (·, "definition")
   let (reports, _) ← (allTargets.mapM fun (n, k) => verifyOneTarget challenge solution n k).run {}
-  let mut result := { reports : VerificationReport }
+  let mut result : VerificationReport := { reports }
   writeReport result
 
   let fails := reports.filter (·.failureCategory.isSome)
   if !fails.isEmpty then
     let msg := fails.foldl (init := "Some targets failed:\n") fun acc o =>
-      acc ++ s!"- {o.target}: {o.failureMessage.get!}\n"
+      acc ++ s!"- {o.targetName}: {o.failureMessage.get!}\n"
     throw <| .userError msg
 
   let mut errs := #[]
   if ← getNanodaEnabled then
     try
       runNanoda solutionExport
-      result := { result with nanodaAccepted := some true }
+      result := { result with nanoda := { accepted := some true } }
     catch e =>
-      result := { result with nanodaAccepted := some false, nanodaFailureMessage := some e.toString }
+      result := { result with nanoda := { accepted := some false, failureMessage := some e.toString } }
       errs := errs.push e
 
   try
     runKernel (← Export.parseStream (← stringStream solutionExport))
-    result := { result with kernelAccepted := some true }
+    result := { result with kernel := { accepted := some true } }
   catch e =>
-    result := { result with kernelAccepted := some false, kernelFailureMessage := some e.toString }
+    result := { result with kernel := { accepted := some false, failureMessage := some e.toString } }
     errs := errs.push e
 
   writeReport result
