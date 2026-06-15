@@ -22,17 +22,34 @@ structure TheoremTarget where
   mode : TheoremMode
   deriving Inhabited, ToJson, Repr
 
-def checkDisproof (challengeType : Expr) (challengeLevelParams : List Name) (solutionType : Expr) : IO Bool := do
-  try
-    let env ← importModules #[{ module := `Init }] {} 0
-    let checkAction : MetaM Bool := do
-      let us ← challengeLevelParams.mapM fun _ => mkFreshLevelMVar
-      let expected := Expr.forallE `_h (challengeType.instantiateLevelParams challengeLevelParams us) (mkConst ``False) .default
-      isDefEq solutionType expected
-    let (res, _) ← (checkAction.run').toIO { fileName := "", fileMap := default } { env := env }
-    return res
-  catch _ =>
-    return false
+partial def matchLevel (l1 l2 : Level) (params : List Name) (subst : List (Name × Level)) : List (Name × Level) :=
+  match l1, l2 with
+  | .param n, _ => if params.contains n && !subst.any (·.1 == n) then (n, l2) :: subst else subst
+  | .succ n1, .succ n2 => matchLevel n1 n2 params subst
+  | _, _ => subst
+
+partial def collectLevels (e : Expr) (acc : List Level) : List Level :=
+  match e with
+  | .sort l => l :: acc
+  | .const _ ls => ls ++ acc
+  | .app f a => collectLevels f (collectLevels a acc)
+  | .lam _ d b _
+  | .forallE _ d b _ => collectLevels d (collectLevels b acc)
+  | .letE _ t v b _ => collectLevels t (collectLevels v (collectLevels b acc))
+  | .mdata _ b
+  | .proj _ _ b => collectLevels b acc
+  | _ => acc
+
+def checkDisproof (chalType : Expr) (chalLevels : List Name) (solType : Expr) (solLevels : List Name) : Bool :=
+  match solType with
+  | .forallE _ exp (.const ``False []) _
+  | .app (.const ``Not []) exp =>
+    let subst := ((collectLevels chalType []).zip (collectLevels exp [])).foldl
+      (fun acc (l1, l2) => matchLevel l1 l2 chalLevels acc) []
+    let levels := chalLevels.map fun n => (subst.lookup n).getD .zero
+    chalType.instantiateLevelParams chalLevels levels ==
+      exp.instantiateLevelParams solLevels (solLevels.map .param)
+  | _ => false
 
 namespace Compare
 
@@ -117,7 +134,7 @@ def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array 
       let .thmInfo sc := solutionConst
         | throw s!"Solution disproof target is not a theorem: '{target.solutionName}'"
 
-      unless ← checkDisproof cc.type cc.levelParams sc.type do
+      unless checkDisproof cc.type cc.levelParams sc.type sc.levelParams do
         throw s!"Solution disproof statement does not match accepted disproof interface: '{target.solutionName}'"
 
   for target in definitionTargets do

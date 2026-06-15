@@ -91,7 +91,7 @@ def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := spawnArgs.executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
   args ++ #[spawnArgs.cmd] ++ spawnArgs.args
 
-def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
+def runSandBoxedWithStdout (spawnArgs : LandrunArgs) (quiet : Bool := false) : M String := do
   let args := buildLandrunArgs spawnArgs
   let { stdout, stderr, exitCode } ← IO.Process.output {
     cmd := (← read).whichLandrun,
@@ -99,7 +99,8 @@ def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
   }
-  IO.eprint stderr
+  unless quiet do
+    IO.eprint stderr
   if exitCode != 0 then
     throw <| .userError s!"Child exited with {exitCode}"
   return stdout
@@ -137,8 +138,9 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
     executablePaths := #[leanPrefix, gitLocation]
   }
 
-def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
-  IO.println s!"Exporting {decls} from {module}"
+def safeExport (module : Lean.Name) (decls : Array Lean.Name) (quiet : Bool := false) : M String := do
+  unless quiet do
+    IO.println s!"Exporting {decls} from {module}"
   let args :=
     if decls.isEmpty then
       #[module.toString]
@@ -157,7 +159,7 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
     readablePaths := #[projectDir, dotLakeDir]
     writablePaths := #[]
     executablePaths := #[leanPrefix]
-  }
+  } quiet
 
 def runNanoda (solutionExport : String) : M Unit := do
   IO.println "Running nanoda kernel on solution"
@@ -252,19 +254,14 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
 structure VerifyResult where
   acceptedTheorems : Array Lean.Name
 
-def disproofName (n : Lean.Name) : Lean.Name := n ++ `disproof
-
-def directTarget (n : Lean.Name) : TheoremTarget :=
-  { challengeName := n, solutionName := n, mode := .direct }
-
 def selectTheoremTarget (solution : Export.ExportedEnv) (name : Lean.Name)
     (allowDisproofs : Bool) : Except String TheoremTarget := do
   let directInfo := solution.constMap[name]?
-  let dname := disproofName name
+  let dname := name ++ `disproof
   let disproofInfo := if allowDisproofs then solution.constMap[dname]? else none
   match directInfo, disproofInfo with
   | some _, some _ => throw s!"Both proof and disproof provided for theorem target: '{name}'"
-  | some _, none => return directTarget name
+  | some _, none => return { challengeName := name, solutionName := name, mode := .direct }
   | none, some _ => return { challengeName := name, solutionName := dname, mode := .disproof }
   | none, none => throw s!"No proof or disproof provided for theorem target: '{name}'"
 
@@ -275,7 +272,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String)
   let definitionNames ← getDefinitionNames
   let legalAxioms ← getLegalAxioms
   let allowDisproofs ← getAllowDisproofs
-  let mut targets := legalAxioms.map directTarget
+  let mut targets := legalAxioms.map fun n => { challengeName := n, solutionName := n, mode := .direct }
   let mut acceptedTheorems := #[]
   for theoremName in theoremNames do
     let target ← IO.ofExcept <| selectTheoremTarget solution theoremName allowDisproofs
@@ -288,6 +285,13 @@ def verifyMatch (challengeExport : String) (solutionExport : String)
 def getTargets (theorems definitions : Array Lean.Name) : M (Array Lean.Name) := do
   return (← builtinTargets) ++ theorems ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ definitions
 
+def tryExport (module : Lean.Name) (decls : Array Lean.Name) : M Bool := do
+  try
+    let _ ← safeExport module decls true
+    return true
+  catch _ =>
+    return false
+
 def compareIt : M Unit := do
   let theoremNames ← getTheoremNames
   let definitionNames ← getDefinitionNames
@@ -299,13 +303,16 @@ def compareIt : M Unit := do
 
   let solutionModule ← getSolutionModule
   safeLakeBuild solutionModule
-  let selectedTargets ←
+  let selectedTargets : Array TheoremTarget ← theoremNames.mapM fun theoremName => do
     if allowDisproofs then
-      let solutionIndex ← Export.parseStream (← stringStream (← safeExport solutionModule #[]))
-      theoremNames.mapM fun theoremName =>
-        IO.ofExcept <| selectTheoremTarget solutionIndex theoremName allowDisproofs
-    else
-      pure <| theoremNames.map directTarget
+      let disproofName := theoremName ++ `disproof
+      let hasDisproof ← tryExport solutionModule #[disproofName]
+      let hasDirect ← tryExport solutionModule #[theoremName]
+      if hasDisproof && hasDirect then
+        throw <| .userError s!"Both proof and disproof provided for theorem target: '{theoremName}'"
+      if hasDisproof then
+        return { challengeName := theoremName, solutionName := disproofName, mode := .disproof }
+    return { challengeName := theoremName, solutionName := theoremName, mode := .direct }
   let solutionExport ← safeExport solutionModule (← getTargets (selectedTargets.map (·.solutionName)) definitionNames)
 
   let result ← verifyMatch challengeExport solutionExport theoremNames
