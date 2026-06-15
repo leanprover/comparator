@@ -14,6 +14,10 @@ partial def matchLevel (l1 l2 : Level) (params : List Name) (subst : List (Name 
   match l1, l2 with
   | .param n, _ => if params.contains n && !subst.any (·.1 == n) then (n, l2) :: subst else subst
   | .succ n1, .succ n2 => matchLevel n1 n2 params subst
+  | .max n1 n2, .max m1 m2 => matchLevel n2 m2 params (matchLevel n1 m1 params subst)
+  | .max n1 n2, l2 => matchLevel n2 l2 params (matchLevel n1 l2 params subst)
+  | .imax n1 n2, .imax m1 m2 => matchLevel n2 m2 params (matchLevel n1 m1 params subst)
+  | .imax n1 n2, l2 => matchLevel n2 l2 params (matchLevel n1 l2 params subst)
   | _, _ => subst
 
 partial def collectLevels (e : Expr) (acc : List Level) : List Level :=
