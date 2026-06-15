@@ -91,7 +91,7 @@ def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := spawnArgs.executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
   args ++ #[spawnArgs.cmd] ++ spawnArgs.args
 
-def runSandBoxedWithStdout (spawnArgs : LandrunArgs) (quiet : Bool := false) : M String := do
+def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
   let args := buildLandrunArgs spawnArgs
   let { stdout, stderr, exitCode } ← IO.Process.output {
     cmd := (← read).whichLandrun,
@@ -99,8 +99,7 @@ def runSandBoxedWithStdout (spawnArgs : LandrunArgs) (quiet : Bool := false) : M
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
   }
-  unless quiet do
-    IO.eprint stderr
+  IO.eprint stderr
   if exitCode != 0 then
     throw <| .userError s!"Child exited with {exitCode}"
   return stdout
@@ -138,15 +137,10 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
     executablePaths := #[leanPrefix, gitLocation]
   }
 
-def safeExport (module : Lean.Name) (decls : Array Lean.Name) (quiet : Bool := false) : M String := do
-  unless quiet do
-    IO.println s!"Exporting {decls} from {module}"
-  let args :=
-    if decls.isEmpty then
-      #["--ignore-missing", module.toString]
-    else
-      let baseArgs := #["--ignore-missing", module.toString, "--"]
-      decls.foldl (·.push <| ·.toString) baseArgs
+def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
+  IO.println s!"Exporting {decls} from {module}"
+  let baseArgs := #["--ignore-missing", module.toString, "--"]
+  let args := decls.foldl (·.push <| ·.toString) baseArgs
 
   let leanPrefix ← getLeanPrefix
   let projectDir ← getProjectDir
@@ -159,7 +153,7 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) (quiet : Bool := f
     readablePaths := #[projectDir, dotLakeDir]
     writablePaths := #[]
     executablePaths := #[leanPrefix]
-  } quiet
+  }
 
 def runNanoda (solutionExport : String) : M Unit := do
   IO.println "Running nanoda kernel on solution"
@@ -251,9 +245,6 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
   }
   return IO.FS.Stream.ofBuffer ref
 
-structure VerifyResult where
-  acceptedTheorems : Array Lean.Name
-
 def selectTheoremTarget (solution : Export.ExportedEnv) (name : Lean.Name)
     (allowDisproofs : Bool) : Except String TheoremTarget := do
   let directInfo := solution.constMap[name]?
@@ -265,49 +256,41 @@ def selectTheoremTarget (solution : Export.ExportedEnv) (name : Lean.Name)
   | none, some _ => return { challengeName := name, solutionName := dname, mode := .disproof }
   | none, none => throw s!"No proof or disproof provided for theorem target: '{name}'"
 
-def verifyMatch (challengeExport : String) (solutionExport : String)
-    (theoremNames : Array Lean.Name) : M VerifyResult := do
+def verifyMatch (challengeExport : String) (solutionExport : String) :
+    M Unit := do
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
+  let theoremNames ← getTheoremNames
   let definitionNames ← getDefinitionNames
-  let legalAxioms ← getLegalAxioms
   let allowDisproofs ← getAllowDisproofs
+  let legalAxioms ← getLegalAxioms
   let mut targets := legalAxioms.map fun n => { challengeName := n, solutionName := n, mode := .direct }
   let mut acceptedTheorems := #[]
   for theoremName in theoremNames do
     let target ← IO.ofExcept <| selectTheoremTarget solution theoremName allowDisproofs
     targets := targets.push target
     acceptedTheorems := acceptedTheorems.push target.solutionName
-  IO.ofExcept <| ← Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
+  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
   IO.ofExcept <| Comparator.checkAxioms solution acceptedTheorems definitionNames legalAxioms
-  return { acceptedTheorems }
-
-def getTargets (theorems definitions : Array Lean.Name) : M (Array Lean.Name) := do
-  return (← builtinTargets) ++ theorems ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ definitions
+  if ← getNanodaEnabled then
+    runNanoda solutionExport
+  runKernel solution
 
 def compareIt : M Unit := do
   let theoremNames ← getTheoremNames
-  let definitionNames ← getDefinitionNames
-  let allowDisproofs ← getAllowDisproofs
+  let exportTargets := (← builtinTargets) ++ theoremNames ++ (← getLegalAxioms)
+    ++ (← primitiveTargets) ++ (← getDefinitionNames)
 
   let challengeModule ← getChallengeModule
   safeLakeBuild challengeModule
-  let challengeExport ← safeExport challengeModule (← getTargets theoremNames definitionNames)
+  let challengeExport ← safeExport challengeModule exportTargets
 
   let solutionModule ← getSolutionModule
   safeLakeBuild solutionModule
+  let exportSolTargets := exportTargets ++ (if (← getAllowDisproofs) then theoremNames.map (· ++ `disproof) else #[])
+  let solutionExport ← safeExport solutionModule exportSolTargets
 
-  let potentialSolutionDecls := theoremNames ++ (if allowDisproofs then theoremNames.map (· ++ `disproof) else #[])
-  let solutionExport ← safeExport solutionModule (← getTargets potentialSolutionDecls definitionNames)
-
-  let result ← verifyMatch challengeExport solutionExport theoremNames
-  let verifiedSolutionExport ← safeExport solutionModule (← getTargets result.acceptedTheorems definitionNames)
-
-  if ← getNanodaEnabled then
-    runNanoda verifiedSolutionExport
-
-  let verifiedSolution ← Export.parseStream (← stringStream verifiedSolutionExport)
-  runKernel verifiedSolution
+  verifyMatch challengeExport solutionExport
 
   IO.println "Your solution is okay!"
 

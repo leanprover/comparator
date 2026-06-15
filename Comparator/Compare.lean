@@ -105,7 +105,7 @@ def definitionHoleMatches (challengeHole solutionHole : Lean.DefinitionVal) : Bo
     && challengeHole.safety == solutionHole.safety
 
 def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array TheoremTarget)
-    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) : IO (Except String Unit) := ExceptT.run do
+    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) : Except String Unit := do
   let mut worklist := primitive
 
   for target in theoremTargets do
