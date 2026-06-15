@@ -23,6 +23,7 @@ structure Context where
   whichLandrun : String
   whichLean4Export : String
   whichNanoda : String
+  jsonOutputPath : Option String
 
 abbrev M := ReaderT Context IO
 
@@ -241,32 +242,132 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
   }
   return IO.FS.Stream.ofBuffer ref
 
+@[inline]
+def getJsonOutputPath : M (Option String) := do return (← read).jsonOutputPath
+
+abbrev DepM := StateM (Std.HashSet Lean.Name)
+
+partial def collectDeps (env : Export.ExportedEnv) (n : Lean.Name) : DepM Unit := do
+  if (← get).contains n then
+    return
+  modify (·.insert n)
+  if let some info := env.constMap[n]? then
+    Comparator.runForUsedConsts info (collectDeps env)
+
+def getAxioms (env : Export.ExportedEnv) (n : Lean.Name) : Array Lean.Name := Id.run do
+  let (_, deps) := (collectDeps env n).run {}
+  return deps.toArray.filter fun dep => match env.constMap[dep]? with
+    | some (.axiomInfo _) => true
+    | _ => false
+
+structure VerificationOutcome where
+  target : Lean.Name
+  targetKind : String
+  origin : String := "configured"
+  mode : Option String
+  actualName : Option Lean.Name
+  accepted : Bool
+  failureCategory : Option String
+  transitiveAxioms : Array Lean.Name
+  deriving Lean.ToJson
+
+structure VerifyResult where
+  acceptedTheorems : Array Lean.Name
+  outcomes : Array VerificationOutcome
+  deriving Lean.ToJson
+
+def outcome (solution : Export.ExportedEnv) (target : Lean.Name) (targetKind : String)
+    (mode : Option String) (accepted : Bool) (failureCategory : Option String := none) :
+    VerificationOutcome :=
+  { target, targetKind, mode, accepted, failureCategory
+    actualName := if accepted then some target else none
+    transitiveAxioms := getAxioms solution target }
+
+def writeReport (result : VerifyResult) : M Unit := do
+  if let some path ← getJsonOutputPath then
+    IO.FS.writeFile path (Lean.Json.compress <| Lean.toJson result)
+
+def throwFailures (header : String) (failures : Array (Lean.Name × String)) : M α := do
+  let mut msg := header
+  for (name, failure) in failures do
+    msg := msg ++ s!"- {name}: {failure}\n"
+  throw <| .userError msg
+
 def verifyMatch (challengeExport : String) (solutionExport : String) :
-    M Unit := do
+    M VerifyResult := do
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
   let theoremNames ← getTheoremNames
   let definitionNames ← getDefinitionNames
-  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
-  if ← getNanodaEnabled then
-    runNanoda solutionExport
-  runKernel solution
+  let legalAxioms ← getLegalAxioms
+
+  if let .error e := Comparator.compareAt challenge solution legalAxioms #[] (← primitiveTargets) then
+    let outcomes :=
+      theoremNames.map (outcome solution · "theorem" (some "direct") false (some "global_precheck")) ++
+      definitionNames.map (outcome solution · "definition" none false (some "global_precheck"))
+    writeReport { acceptedTheorems := #[], outcomes }
+    throw <| .userError e
+
+  let mut theoremFailures := #[]
+  let mut outcomes := #[]
+  for theoremName in theoremNames do
+    let (failure, category) ← match Comparator.compareAt challenge solution #[theoremName] definitionNames #[] with
+    | .error e => pure (some e, some "comparison")
+    | .ok () =>
+      match Comparator.checkAxioms solution #[theoremName] #[] legalAxioms with
+      | .error e => pure (some e, some "axioms")
+      | .ok () => pure (none, none)
+    outcomes := outcomes.push <| outcome solution theoremName "theorem" (some "direct")
+      failure.isNone category
+    if let some e := failure then
+      theoremFailures := theoremFailures.push (theoremName, e)
+
+  let mut definitionFailures := #[]
+  for definitionName in definitionNames do
+    let (failure, category) ← match Comparator.compareAt challenge solution #[] #[definitionName] #[] with
+    | .error e => pure (some e, some "comparison")
+    | .ok () =>
+      match Comparator.checkAxioms solution #[] #[definitionName] legalAxioms with
+      | .error e => pure (some e, some "axioms")
+      | .ok () => pure (none, none)
+    outcomes := outcomes.push <| outcome solution definitionName "definition" none
+      failure.isNone category
+    if let some e := failure then
+      definitionFailures := definitionFailures.push (definitionName, e)
+
+  let result := { acceptedTheorems := theoremNames, outcomes }
+  writeReport result
+
+  if !definitionFailures.isEmpty then
+    throwFailures "Some definition targets failed:\n" definitionFailures
+  if !theoremFailures.isEmpty then
+    throwFailures "Some theorem targets failed:\n" theoremFailures
+
+  return result
+
+def getTargets (theorems definitions : Array Lean.Name) : M (Array Lean.Name) := do
+  return (← builtinTargets) ++ theorems ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ definitions
 
 def compareIt : M Unit := do
-  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
-    ++ (← primitiveTargets) ++ (← getDefinitionNames)
+  let theoremNames ← getTheoremNames
+  let definitionNames ← getDefinitionNames
 
   let challengeModule ← getChallengeModule
   safeLakeBuild challengeModule
-  let challengeExport ← safeExport challengeModule exportTargets
+  let challengeExport ← safeExport challengeModule (← getTargets theoremNames definitionNames)
 
   let solutionModule ← getSolutionModule
   safeLakeBuild solutionModule
-  let solutionExport ← safeExport solutionModule exportTargets
+  let solutionExport ← safeExport solutionModule (← getTargets theoremNames definitionNames)
 
-  verifyMatch challengeExport solutionExport
+  let result ← verifyMatch challengeExport solutionExport
+  let verifiedSolutionExport ← safeExport solutionModule (← getTargets result.acceptedTheorems definitionNames)
+
+  if ← getNanodaEnabled then
+    runNanoda verifiedSolutionExport
+
+  let verifiedSolution ← Export.parseStream (← stringStream verifiedSolutionExport)
+  runKernel verifiedSolution
 
   IO.println "Your solution is okay!"
 
@@ -277,6 +378,7 @@ structure Config where
   definition_names : Option (Array String) := none
   permitted_axioms : Array String
   enable_nanoda : Bool
+  json_output_path : Option String := none
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -298,7 +400,8 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     enableNanoda := cfg.enable_nanoda,
     whichLean4Export,
     whichLandrun,
-    whichNanoda
+    whichNanoda,
+    jsonOutputPath := cfg.json_output_path
   }
 
 end Comparator
