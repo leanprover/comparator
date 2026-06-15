@@ -1,1 +1,1 @@
-theorem foo : ∀ x : Nat, ¬ 1 + 1 = 2 := sorry
+theorem foo : 1 + 1 = 2 := sorry
