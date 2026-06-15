@@ -20,6 +20,7 @@ structure Context where
   leanPrefix : System.FilePath
   gitLocation : System.FilePath
   enableNanoda : Bool
+  allowDisproofs : Bool
   whichLandrun : String
   whichLean4Export : String
   whichNanoda : String
@@ -61,6 +62,9 @@ def getGitLocation : M System.FilePath := do return (← read).gitLocation
 
 @[inline]
 def getNanodaEnabled : M Bool := do return (← read).enableNanoda
+
+@[inline]
+def getAllowDisproofs : M Bool := do return (← read).allowDisproofs
 
 def queryGitLocation : IO System.FilePath := do
   let out ← IO.Process.run {
@@ -135,8 +139,12 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
 
 def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
   IO.println s!"Exporting {decls} from {module}"
-  let baseArgs := #[module.toString, "--"]
-  let args := decls.foldl (·.push <| ·.toString) baseArgs
+  let args :=
+    if decls.isEmpty then
+      #[module.toString]
+    else
+      let baseArgs := #[module.toString, "--"]
+      decls.foldl (·.push <| ·.toString) baseArgs
 
   let leanPrefix ← getLeanPrefix
   let projectDir ← getProjectDir
@@ -241,32 +249,73 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
   }
   return IO.FS.Stream.ofBuffer ref
 
-def verifyMatch (challengeExport : String) (solutionExport : String) :
-    M Unit := do
+structure VerifyResult where
+  acceptedTheorems : Array Lean.Name
+
+def disproofName (n : Lean.Name) : Lean.Name := n ++ `disproof
+
+def directTarget (n : Lean.Name) : TheoremTarget :=
+  { challengeName := n, solutionName := n, mode := .direct }
+
+def selectTheoremTarget (solution : Export.ExportedEnv) (name : Lean.Name)
+    (allowDisproofs : Bool) : Except String TheoremTarget := do
+  let directInfo := solution.constMap[name]?
+  let dname := disproofName name
+  let disproofInfo := if allowDisproofs then solution.constMap[dname]? else none
+  match directInfo, disproofInfo with
+  | some _, some _ => throw s!"Both proof and disproof provided for theorem target: '{name}'"
+  | some _, none => return directTarget name
+  | none, some _ => return { challengeName := name, solutionName := dname, mode := .disproof }
+  | none, none => throw s!"No proof or disproof provided for theorem target: '{name}'"
+
+def verifyMatch (challengeExport : String) (solutionExport : String)
+    (theoremNames : Array Lean.Name) : M VerifyResult := do
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
-  let theoremNames ← getTheoremNames
   let definitionNames ← getDefinitionNames
-  let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
-  if ← getNanodaEnabled then
-    runNanoda solutionExport
-  runKernel solution
+  let legalAxioms ← getLegalAxioms
+  let allowDisproofs ← getAllowDisproofs
+  let mut targets := legalAxioms.map directTarget
+  let mut acceptedTheorems := #[]
+  for theoremName in theoremNames do
+    let target ← IO.ofExcept <| selectTheoremTarget solution theoremName allowDisproofs
+    targets := targets.push target
+    acceptedTheorems := acceptedTheorems.push target.solutionName
+  IO.ofExcept <| ← Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
+  IO.ofExcept <| Comparator.checkAxioms solution acceptedTheorems definitionNames legalAxioms
+  return { acceptedTheorems }
+
+def getTargets (theorems definitions : Array Lean.Name) : M (Array Lean.Name) := do
+  return (← builtinTargets) ++ theorems ++ (← getLegalAxioms) ++ (← primitiveTargets) ++ definitions
 
 def compareIt : M Unit := do
-  let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
-    ++ (← primitiveTargets) ++ (← getDefinitionNames)
+  let theoremNames ← getTheoremNames
+  let definitionNames ← getDefinitionNames
+  let allowDisproofs ← getAllowDisproofs
 
   let challengeModule ← getChallengeModule
   safeLakeBuild challengeModule
-  let challengeExport ← safeExport challengeModule exportTargets
+  let challengeExport ← safeExport challengeModule (← getTargets theoremNames definitionNames)
 
   let solutionModule ← getSolutionModule
   safeLakeBuild solutionModule
-  let solutionExport ← safeExport solutionModule exportTargets
+  let selectedTargets ←
+    if allowDisproofs then
+      let solutionIndex ← Export.parseStream (← stringStream (← safeExport solutionModule #[]))
+      theoremNames.mapM fun theoremName =>
+        IO.ofExcept <| selectTheoremTarget solutionIndex theoremName allowDisproofs
+    else
+      pure <| theoremNames.map directTarget
+  let solutionExport ← safeExport solutionModule (← getTargets (selectedTargets.map (·.solutionName)) definitionNames)
 
-  verifyMatch challengeExport solutionExport
+  let result ← verifyMatch challengeExport solutionExport theoremNames
+  let verifiedSolutionExport ← safeExport solutionModule (← getTargets result.acceptedTheorems definitionNames)
+
+  if ← getNanodaEnabled then
+    runNanoda verifiedSolutionExport
+
+  let verifiedSolution ← Export.parseStream (← stringStream verifiedSolutionExport)
+  runKernel verifiedSolution
 
   IO.println "Your solution is okay!"
 
@@ -277,6 +326,7 @@ structure Config where
   definition_names : Option (Array String) := none
   permitted_axioms : Array String
   enable_nanoda : Bool
+  allow_disproofs : Option Bool := none
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -296,6 +346,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     leanPrefix := leanPrefix,
     gitLocation := gitLocation,
     enableNanoda := cfg.enable_nanoda,
+    allowDisproofs := cfg.allow_disproofs.getD false,
     whichLean4Export,
     whichLandrun,
     whichNanoda
@@ -304,6 +355,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
 end Comparator
 
 def main (args : List String) : IO Unit := do
+  Lean.initSearchPath (← Lean.findSysroot)
   let some (configPath : String) := args[0]?
     | throw <| .userError "Expected config file path as first argument."
   let content ← IO.FS.readFile configPath
