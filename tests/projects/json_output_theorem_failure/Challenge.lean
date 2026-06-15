@@ -1,2 +1,4 @@
-theorem expected : True := by
+import Lean
+
+theorem expected : False := by
   sorry

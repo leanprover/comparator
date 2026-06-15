@@ -1,4 +1,20 @@
 {
     "exit_code": 1,
-    "expected_json_output": ["\"targetKind\":\"theorem\"", "\"accepted\":false", "\"failureCategory\":\"axioms\"", "\"transitiveAxioms\":[\"sorryAx\""]
+    "expected_json_output": {
+        "outcomes": [
+            {
+                "target": "expected",
+                "targetKind": "theorem",
+                "accepted": true,
+                "failureCategory": null,
+                "failureMessage": null,
+                "unpermittedAxioms": [],
+                "transitiveAxioms": ["Quot.sound", "propext"]
+            }
+        ],
+        "nanodaFailureMessage": null,
+        "nanodaAccepted": null,
+        "kernelFailureMessage": "(kernel) application type mismatch\n  @id\n    (@Eq Bool\n      (Decidable.decide (Not (@LE.le Nat instLENat badNat 9223372036854775807))\n        (instDecidableNot (@LE.le Nat instLENat badNat 9223372036854775807) (Nat.decLe badNat 9223372036854775807)))\n      Bool.true)\n    (@Eq.refl Bool Bool.true)\nargument has type\n  @Eq Bool Bool.true Bool.true\nbut function has type\n  @Eq Bool\n      (Decidable.decide (Not (@LE.le Nat instLENat badNat 9223372036854775807))\n        (instDecidableNot (@LE.le Nat instLENat badNat 9223372036854775807) (Nat.decLe badNat 9223372036854775807)))\n      Bool.true →\n    @Eq Bool\n      (Decidable.decide (Not (@LE.le Nat instLENat badNat 9223372036854775807))\n        (instDecidableNot (@LE.le Nat instLENat badNat 9223372036854775807) (Nat.decLe badNat 9223372036854775807)))\n      Bool.true",
+        "kernelAccepted": false
+    }
 }

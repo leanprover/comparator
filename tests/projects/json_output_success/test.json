@@ -1,4 +1,20 @@
 {
     "exit_code": 0,
-    "expected_json_output": ["\"targetKind\":\"theorem\"", "\"origin\":\"configured\"", "\"mode\":\"direct\"", "\"actualName\":\"expected\"", "\"accepted\":true"]
+    "expected_json_output": {
+        "outcomes": [
+            {
+                "target": "expected",
+                "targetKind": "theorem",
+                "accepted": true,
+                "failureCategory": null,
+                "failureMessage": null,
+                "unpermittedAxioms": [],
+                "transitiveAxioms": []
+            }
+        ],
+        "kernelAccepted": true,
+        "kernelFailureMessage": null,
+        "nanodaAccepted": null,
+        "nanodaFailureMessage": null
+    }
 }

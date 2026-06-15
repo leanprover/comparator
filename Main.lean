@@ -263,25 +263,28 @@ def getAxioms (env : Export.ExportedEnv) (n : Lean.Name) : Array Lean.Name := Id
 structure VerificationOutcome where
   target : Lean.Name
   targetKind : String
-  origin : String := "configured"
-  mode : Option String
-  actualName : Option Lean.Name
   accepted : Bool
   failureCategory : Option String
+  failureMessage : Option String
+  unpermittedAxioms : Array Lean.Name
   transitiveAxioms : Array Lean.Name
   deriving Lean.ToJson
 
 structure VerifyResult where
-  acceptedTheorems : Array Lean.Name
   outcomes : Array VerificationOutcome
+  kernelAccepted : Option Bool := none
+  kernelFailureMessage : Option String := none
+  nanodaAccepted : Option Bool := none
+  nanodaFailureMessage : Option String := none
   deriving Lean.ToJson
 
 def outcome (solution : Export.ExportedEnv) (target : Lean.Name) (targetKind : String)
-    (mode : Option String) (accepted : Bool) (failureCategory : Option String := none) :
+    (legalAxioms : Array Lean.Name) (accepted : Bool)
+    (failureCategory : Option String := none) (failureMessage : Option String := none) :
     VerificationOutcome :=
-  { target, targetKind, mode, accepted, failureCategory
-    actualName := if accepted then some target else none
-    transitiveAxioms := getAxioms solution target }
+  let transitiveAxioms := getAxioms solution target
+  let unpermittedAxioms := transitiveAxioms.filter fun ax => !legalAxioms.contains ax
+  { target, targetKind, accepted, failureCategory, failureMessage, unpermittedAxioms, transitiveAxioms }
 
 def writeReport (result : VerifyResult) : M Unit := do
   if let some path ← getJsonOutputPath then
@@ -303,40 +306,37 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
 
   if let .error e := Comparator.compareAt challenge solution legalAxioms #[] (← primitiveTargets) then
     let outcomes :=
-      theoremNames.map (outcome solution · "theorem" (some "direct") false (some "global_precheck")) ++
-      definitionNames.map (outcome solution · "definition" none false (some "global_precheck"))
-    writeReport { acceptedTheorems := #[], outcomes }
+      theoremNames.map (outcome solution · "theorem" legalAxioms false (some "global_precheck") (some e)) ++
+      definitionNames.map (outcome solution · "definition" legalAxioms false (some "global_precheck") (some e))
+    writeReport { outcomes }
     throw <| .userError e
 
-  let mut theoremFailures := #[]
   let mut outcomes := #[]
-  for theoremName in theoremNames do
-    let (failure, category) ← match Comparator.compareAt challenge solution #[theoremName] definitionNames #[] with
-    | .error e => pure (some e, some "comparison")
-    | .ok () =>
-      match Comparator.checkAxioms solution #[theoremName] #[] legalAxioms with
-      | .error e => pure (some e, some "axioms")
-      | .ok () => pure (none, none)
-    outcomes := outcomes.push <| outcome solution theoremName "theorem" (some "direct")
-      failure.isNone category
-    if let some e := failure then
-      theoremFailures := theoremFailures.push (theoremName, e)
+  let mut failures := #[]
 
-  let mut definitionFailures := #[]
-  for definitionName in definitionNames do
-    let (failure, category) ← match Comparator.compareAt challenge solution #[] #[definitionName] #[] with
-    | .error e => pure (some e, some "comparison")
-    | .ok () =>
-      match Comparator.checkAxioms solution #[] #[definitionName] legalAxioms with
-      | .error e => pure (some e, some "axioms")
-      | .ok () => pure (none, none)
-    outcomes := outcomes.push <| outcome solution definitionName "definition" none
-      failure.isNone category
-    if let some e := failure then
-      definitionFailures := definitionFailures.push (definitionName, e)
+  let allTargets :=
+    theoremNames.map (·, "theorem") ++
+    definitionNames.map (·, "definition")
 
-  let result := { acceptedTheorems := theoremNames, outcomes }
+  for (name, kind) in allTargets do
+    let (theoremTargets, definitionTargets) := match kind with
+      | "theorem" => (#[name], definitionNames)
+      | _ => (#[], #[name])
+    let (failure, category) ← match Comparator.compareAt challenge solution theoremTargets definitionTargets #[] with
+      | .error e => pure (some e, some "comparison")
+      | .ok () =>
+        match Comparator.checkAxioms solution theoremTargets definitionTargets legalAxioms with
+        | .error e => pure (some e, some "axioms")
+        | .ok () => pure (none, none)
+    outcomes := outcomes.push <| outcome solution name kind legalAxioms failure.isNone category failure
+    if let some e := failure then
+      failures := failures.push (name, kind, e)
+
+  let result := { outcomes }
   writeReport result
+
+  let definitionFailures := failures.filter (·.2.1 == "definition") |>.map (fun (n, _, e) => (n, e))
+  let theoremFailures := failures.filter (·.2.1 == "theorem") |>.map (fun (n, _, e) => (n, e))
 
   if !definitionFailures.isEmpty then
     throwFailures "Some definition targets failed:\n" definitionFailures
@@ -360,14 +360,32 @@ def compareIt : M Unit := do
   safeLakeBuild solutionModule
   let solutionExport ← safeExport solutionModule (← getTargets theoremNames definitionNames)
 
-  let result ← verifyMatch challengeExport solutionExport
-  let verifiedSolutionExport ← safeExport solutionModule (← getTargets result.acceptedTheorems definitionNames)
+  let mut result ← verifyMatch challengeExport solutionExport
+  let mut nanodaError : Option IO.Error := none
+  let mut kernelError : Option IO.Error := none
 
   if ← getNanodaEnabled then
-    runNanoda verifiedSolutionExport
+    try
+      runNanoda solutionExport
+      result := { result with nanodaAccepted := some true }
+    catch e =>
+      result := { result with nanodaAccepted := some false, nanodaFailureMessage := some e.toString }
+      nanodaError := some e
 
-  let verifiedSolution ← Export.parseStream (← stringStream verifiedSolutionExport)
-  runKernel verifiedSolution
+  try
+    let verifiedSolution ← Export.parseStream (← stringStream solutionExport)
+    runKernel verifiedSolution
+    result := { result with kernelAccepted := some true }
+  catch e =>
+    result := { result with kernelAccepted := some false, kernelFailureMessage := some e.toString }
+    kernelError := some e
+
+  writeReport result
+
+  if let some e := nanodaError then
+    throw e
+  if let some e := kernelError then
+    throw e
 
   IO.println "Your solution is okay!"
 
