@@ -154,7 +154,7 @@ COMPARATOR_LANDRUN=$(realpath scripts/fake-landrun.sh) COMPARATOR_LEAN4EXPORT=$(
 
 Replace the `landrun` and `lean4export` arguments as needed, or place the binaries in `PATH`.
 
-## Internals:
+## Internals
 We generally adopt a policy of not loading olean files as they just get mmaped into our address
 space and then dereferenced and are as such a potential point of attack for sophisticated adversaries.
 
@@ -179,3 +179,7 @@ The comparator performs the following steps to ensure these properties:
 Note that as `Challenge` is trusted, both the sandbox and lean4export step for `Challenge` are not
 necessary to the best of our knowledge. We still adopt these rather free measures as additional
 paranoia in case an adversary comes up with a means of attack anyway.
+
+## Acknowledgement
+Comparator was originally developed by Lean FRO, with feedback from the AIMO team, in support of the
+AIMO series of competitions and their goal of enabling trustworthy LLM Lean evaluation on Kaggle.
