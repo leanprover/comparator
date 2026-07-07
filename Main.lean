@@ -5,7 +5,6 @@ Authors: Henrik Böving
 -/
 import Lean
 import Comparator
-import Lean4Checker.Replay
 import Export.Parse
 
 namespace Comparator
@@ -198,7 +197,7 @@ def runKernel (solution : Export.ExportedEnv) : M Unit := do
   -- Lean's kernel interprets just the addition of `Quot as adding all of these so adding them
   -- multiple times leads to errors.
   constMap := constMap.erase `Quot.mk |>.erase `Quot.lift |>.erase `Quot.ind
-  discard <| env.replay' constMap
+  discard <| env.replay constMap
   IO.println "Lean default kernel accepts the solution"
 
 def primitiveTargets : M (Array Lean.Name) := do
