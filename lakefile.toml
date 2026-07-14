@@ -11,10 +11,5 @@ root = "Main"
 
 [[require]]
 scope = "leanprover"
-name = "Lean4Checker"
-rev = "b7398199245524275543dec6113229c9bb4902e5"
-
-[[require]]
-scope = "leanprover"
 name = "lean4export"
 rev = "master"
