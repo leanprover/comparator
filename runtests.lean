@@ -25,6 +25,7 @@ open Lean System.FilePath IO.FS IO.Process System
 
 structure TestConfig where
   exit_code : Nat
+  expected_json_output : Option Lean.Json := none
   deriving FromJson, ToJson
 
 inductive TestResult
@@ -102,6 +103,17 @@ def runTestProject (projectPath : FilePath) (projectName : String) (testsDir : F
     createAdditionalFiles tempDir
 
     let exitCode ← runCommandInDir tempDir "lake" #["env", comparatorPath.toString, "config.json"]
+
+    let projectConfig := Lean.Json.parse (← IO.FS.readFile (tempDir / "config.json")) |>.toOption.getD .null
+    if let .ok jsonOut := projectConfig.getObjValAs? String "json_output_path" then
+      let outputJson ← IO.ofExcept <| Lean.Json.parse (← IO.FS.readFile (tempDir / jsonOut))
+      if let some expectedJson := config.expected_json_output then
+        if outputJson != expectedJson then
+          IO.FS.removeDirAll tempDir
+          return .error projectName s!"JSON mismatch.\nExpected: {expectedJson}\nGot: {outputJson}"
+      else
+        IO.FS.removeDirAll tempDir
+        return .error projectName s!"Configuration specifies 'json_output_path' but test.json is missing 'expected_json_output'."
 
     IO.FS.removeDirAll tempDir
 

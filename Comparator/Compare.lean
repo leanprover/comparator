@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Henrik Böving
 -/
 import Comparator.Axioms
+import Comparator.Json
 import Export.Parse
 
 namespace Comparator
@@ -19,7 +20,7 @@ structure State where
   worklist : Array Lean.Name
   checked : Std.HashSet Lean.Name
 
-abbrev CompareM := ReaderT Context <| StateT State <| Except String
+abbrev CompareM := ReaderT Context <| StateT State <| Except (CheckFailure × String)
 
 deriving instance BEq for Lean.QuotKind
 deriving instance BEq for Lean.QuotVal
@@ -42,15 +43,15 @@ partial def loop : CompareM Unit := do
     loop
   else
     let some challengeConst := (← read).challenge.constMap[target]?
-      | throw s!"Const not found in challenge '{target}'"
+      | throw (.notFound, s!"Const not found in challenge '{target}'")
     let some solutionConst := (← read).solution.constMap[target]?
-      | throw s!"Const not found in solution '{target}'"
+      | throw (.notFound, s!"Const not found in solution '{target}'")
 
     if (← read).definitionTargets.contains solutionConst.name then
       solutionConst.type.getUsedConstants.forM addWorklist
     else
       if challengeConst != solutionConst then
-        throw s!"Const does not match between challenge and target '{target}'"
+        throw (.dependency, s!"Const does not match between challenge and target '{target}'")
       addRelevantConsts solutionConst
 
     modify fun s => { s with checked := s.checked.insert target }
@@ -63,45 +64,47 @@ def definitionHoleMatches (challengeHole solutionHole : Lean.DefinitionVal) : Bo
     && challengeHole.safety == solutionHole.safety
 
 def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array Lean.Name)
-    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name) : Except String Unit := do
+    (definitionTargets : Array Lean.Name) (primitive : Array Lean.Name)
+    (checked : Std.HashSet Lean.Name := {}) : Except (CheckFailure × String) (Std.HashSet Lean.Name) := do
   let mut worklist := primitive
 
   for target in theoremTargets do
     let some challengeConst := challenge.constMap[target]?
-      | throw s!"Const not found in challenge: '{target}'"
+      | throw (.notFound, s!"Const not found in challenge: '{target}'")
 
     let some solutionConst := solution.constMap[target]?
-      | throw s!"Const not found in solution: '{target}'"
+      | throw (.notFound, s!"Const not found in solution: '{target}'")
 
-    let (challengeConst, solutionConst) ←
+    let (challengeConstVal, solutionConstVal) ←
       match challengeConst, solutionConst with
       | .thmInfo cc, .thmInfo sc
       | .axiomInfo cc, .axiomInfo sc => pure (cc.toConstantVal, sc.toConstantVal)
-      | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
+      | _, _ => throw (.kind (constKind challengeConst) (constKind solutionConst), s!"Challenge and solution constant kind don't match: '{target}'")
 
-    if challengeConst != solutionConst then
-      throw s!"Challenge and solution theorem statement do not match: '{target}'"
+    if challengeConstVal != solutionConstVal then
+      throw (.signature, s!"Challenge and solution theorem statement do not match: '{target}'")
 
-    worklist := worklist ++ challengeConst.type.getUsedConstants
+    worklist := worklist ++ challengeConstVal.type.getUsedConstants
 
   for target in definitionTargets do
-    let some challengeConst := challenge.constMap[target]?
-      | throw s!"Const not found in challenge: '{target}'"
+    let some challengeConstInfo := challenge.constMap[target]?
+      | throw (.notFound, s!"Const not found in challenge: '{target}'")
 
-    let some solutionConst := solution.constMap[target]?
-      | throw s!"Const not found in solution: '{target}'"
+    let some solutionConstInfo := solution.constMap[target]?
+      | throw (.notFound, s!"Const not found in solution: '{target}'")
 
-    let .defnInfo challengeConst := challengeConst
-      | throw s!"Challenge constant is not a definition: '{target}'"
-    let .defnInfo solutionConst := solutionConst
-      | throw s!"Solution constant is not a definition: '{target}'"
+    let .defnInfo challengeConstDef := challengeConstInfo
+      | throw (.kind (constKind challengeConstInfo) (constKind solutionConstInfo), s!"Challenge constant is not a definition: '{target}'")
+    let .defnInfo solutionConstDef := solutionConstInfo
+      | throw (.kind (constKind challengeConstInfo) (constKind solutionConstInfo), s!"Solution constant is not a definition: '{target}'")
 
-    if !definitionHoleMatches challengeConst solutionConst then
-      throw s!"Const does not match between challenge and target '{target}'"
+    if !definitionHoleMatches challengeConstDef solutionConstDef then
+      throw (.signature, s!"Const does not match between challenge and target '{target}'")
 
-    worklist := worklist.push solutionConst.name
+    worklist := worklist.push solutionConstDef.name
 
   let definitionTargets := Std.HashSet.ofArray definitionTargets
-  Compare.loop.run { challenge, solution, definitionTargets } |>.run' { worklist, checked := {} }
+  let (_, s) ← Compare.loop.run { challenge, solution, definitionTargets } |>.run { worklist, checked }
+  return s.checked
 
 end Comparator

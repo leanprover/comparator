@@ -18,6 +18,7 @@ Comparator is configured through a JSON file:
     "challenge_module": "Challenge",
     "solution_module": "Solution",
     "theorem_names": ["todo1"],
+    "json_output_path": "verification-report.json",
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
     "enable_nanoda": false
 }
@@ -25,6 +26,10 @@ Comparator is configured through a JSON file:
 Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
 and `Solution.lean` is provided by a party trying to convince you that they have proven `todo1` by
 writing out the same theorem but with a proper proof attached.
+
+The optional `json_output_path` setting writes a machine-readable outcome for each configured theorem
+or definition before comparator returns a verification failure. Each outcome records the target kind,
+accepted declaration name, failure category, and transitive axioms.
 
 Given the following assumptions:
 1. The transitive closure of imports of `Challenge.lean` as well as `lakefile.toml`/`lakefile.lean`
