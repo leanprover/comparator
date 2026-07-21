@@ -26,6 +26,8 @@ Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sor
 and `Solution.lean` is provided by a party trying to convince you that they have proven `todo1` by
 writing out the same theorem but with a proper proof attached.
 
+Set `allow_disproofs` to `true` to allow solutions to provide disproofs of theorem targets.
+
 Given the following assumptions:
 1. The transitive closure of imports of `Challenge.lean` as well as `lakefile.toml`/`lakefile.lean`
    are controlled by you or trustworthy.
@@ -119,6 +121,17 @@ def large : Nat := 38
 
 theorem large_lt : 37 < large := by decide
 ```
+
+## Disproofs
+
+When `allow_disproofs` is `true`, a theorem target may be replaced by a theorem with the `.disproof`
+suffix:
+```lean
+theorem foo.disproof (h : TargetType) : False := by
+  ...
+```
+To obtain `TargetType`, using `#check type_of% @target` often gives useful information.
+You may instantiate the target theorem's universe parameters for the disproof target.
 
 ## Development
 
