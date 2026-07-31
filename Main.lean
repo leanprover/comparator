@@ -222,12 +222,15 @@ def primitiveTargets : M (Array Lean.Name) := do
     ``Nat.shiftLeft,
     ``Nat.shiftRight,
     ``String.ofList,
+    ``Char.ofNat,
+    ``List,
+    ``eagerReduce,
   ]
 
 def builtinTargets : M (Array Lean.Name) := do
   if ← getNanodaEnabled then
     -- TODO: fix when nanoda fixes its string handling
-    let mut additional := #[``Nat, ``String, ``String.mk, ``Char, ``Char.ofNat, ``List]
+    let mut additional := #[``Nat, ``String, ``String.mk, ``Char]
     if (← getLegalAxioms).contains ``Quot.sound then
       additional := additional ++ #[``Quot, ``Quot.mk, ``Quot.lift, ``Quot.ind]
     return additional
