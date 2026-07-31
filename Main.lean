@@ -84,7 +84,7 @@ def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := spawnArgs.readablePaths.foldl (init := args) (fun acc path => acc ++ #["--ro", path.toString])
   let args := spawnArgs.writablePaths.foldl (init := args) (fun acc path => acc ++ #["--rwx", path.toString])
   let args := spawnArgs.executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
-  args ++ #[spawnArgs.cmd] ++ spawnArgs.args
+  args ++ #["--", spawnArgs.cmd] ++ spawnArgs.args
 
 def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
   let args := buildLandrunArgs spawnArgs
