@@ -150,7 +150,7 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
     executablePaths := #[leanPrefix]
   }
 
-def runNanoda (solutionExport : String) : M Unit := do
+def runNanoda (solutionExport : String) : M (Option String) := do
   IO.println "Running nanoda kernel on solution"
   IO.FS.withTempFile fun config configPath => do
     let legalAxioms ← getLegalAxioms
@@ -186,19 +186,27 @@ def runNanoda (solutionExport : String) : M Unit := do
     nanodaStdin.flush
     let ret ← proc.wait
     if ret != 0 then
-      throw <| .userError s!"Child exited with {ret}"
+      IO.println "Nanoda kernel rejected the solution"
+      return some s!"Child exited with {ret}"
+    else
+      IO.println "Nanoda kernel accepts the solution"
+      return none
 
-    IO.println "Nanoda kernel accepts the solution"
 
-def runKernel (solution : Export.ExportedEnv) : M Unit := do
+def runKernel (solution : Export.ExportedEnv) : M (Option String) := do
   IO.println "Running Lean default kernel on solution."
   let mut env ← Lean.mkEmptyEnvironment
   let mut constMap := solution.constMap
   -- Lean's kernel interprets just the addition of `Quot as adding all of these so adding them
   -- multiple times leads to errors.
   constMap := constMap.erase `Quot.mk |>.erase `Quot.lift |>.erase `Quot.ind
-  discard <| env.replay constMap
-  IO.println "Lean default kernel accepts the solution"
+  try
+    discard <| env.replay constMap
+    IO.println "Lean default kernel accepts the solution"
+    return none
+  catch e =>
+    IO.println "Lean default kernel rejects the solution"
+    return some e.toString
 
 def primitiveTargets : M (Array Lean.Name) := do
   -- The challenge needs to have all the built-in constants of the kernel, as the
@@ -252,9 +260,12 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
   IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
   IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
+  let mut result := none
   if ← getNanodaEnabled then
-    runNanoda solutionExport
-  runKernel solution
+    result := result <|> (← runNanoda solutionExport)
+  result := result <|> (← runKernel solution)
+  if let some error := result then
+    throw <| IO.userError error
 
 def compareIt : M Unit := do
   let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
