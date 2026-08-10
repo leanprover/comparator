@@ -5,7 +5,7 @@
    "type": "git",
    "subDir": null,
    "scope": "leanprover",
-   "rev": "9fb131bb100eb32ccf6836f14e4f8328d13b6792",
+   "rev": "15f6055e299ad5b89345e533cc2192f4cc00f659",
    "name": "lean4export",
    "manifestFile": "lake-manifest.json",
    "inputRev": "master",
