@@ -171,27 +171,30 @@ def runNanoda (solutionExport : String) : M (Option String) := do
       writablePaths := #[]
       executablePaths := #[]
     }
-
     let args := buildLandrunArgs spawnArgs
-    let proc ← IO.Process.spawn {
-      cmd := (← read).whichLandrun,
-      args,
-      stdin := .piped
-      env := spawnArgs.envOverride
-      cwd := (← getProjectDir)
-    }
 
-    let (nanodaStdin, proc) ← proc.takeStdin
-    nanodaStdin.putStr solutionExport
-    nanodaStdin.flush
-    let ret ← proc.wait
-    if ret != 0 then
-      IO.println "Nanoda kernel rejected the solution"
-      return some s!"Child exited with {ret}"
-    else
-      IO.println "Nanoda kernel accepts the solution"
-      return none
+    try
+      let proc ← IO.Process.spawn {
+        cmd := (← read).whichLandrun,
+        args,
+        stdin := .piped
+        env := spawnArgs.envOverride
+        cwd := (← getProjectDir)
+      }
 
+      let (nanodaStdin, proc) ← proc.takeStdin
+      nanodaStdin.putStr solutionExport
+      nanodaStdin.flush
+      let ret ← proc.wait
+      if ret != 0 then
+        IO.println "Nanoda kernel rejected the solution"
+        return some s!"Child exited with {ret}"
+      else
+        IO.println "Nanoda kernel accepts the solution"
+        return none
+    catch e => do
+      IO.println "Error while interacting with nanoda"
+      return some s!"Error while interacting with nanoda: {e.toString}"
 
 def runKernel (solution : Export.ExportedEnv) : M (Option String) := do
   IO.println "Running Lean default kernel on solution."
