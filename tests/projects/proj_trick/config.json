@@ -1,0 +1,8 @@
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": ["tgt"],
+    "definition_names": ["T"],
+    "permitted_axioms": [],
+    "enable_nanoda": false
+}
