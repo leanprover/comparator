@@ -1,0 +1,7 @@
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": ["Quot.lift"],
+    "permitted_axioms": [],
+    "enable_nanoda": false
+}
