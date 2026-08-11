@@ -198,17 +198,31 @@ def runNanoda (solutionExport : String) : M (Option String) := do
 
 def runKernel (solution : Export.ExportedEnv) : M (Option String) := do
   IO.println "Running Lean default kernel on solution."
-  let mut env ← Lean.mkEmptyEnvironment
-  let mut constMap := solution.constMap
+  let env ← Lean.mkEmptyEnvironment
+  let mut kernelEnv := env.toKernelEnv
+  let origConstMap := solution.constMap
   -- Lean's kernel interprets just the addition of `Quot as adding all of these so adding them
   -- multiple times leads to errors.
-  constMap := constMap.erase `Quot.mk |>.erase `Quot.lift |>.erase `Quot.ind
+  let quotTargets := [`Quot.mk, `Quot.lift, `Quot.ind]
+  let kernelConstMap := quotTargets.foldl (init := origConstMap) (·.erase ·)
   try
-    discard <| env.replay constMap
+    kernelEnv ← kernelEnv.replay kernelConstMap
     IO.println "Lean default kernel accepts the solution"
-    return none
   catch e =>
     IO.println "Lean default kernel rejects the solution"
+    return some e.toString
+
+  try
+    let verifyTargets := `Quot :: quotTargets
+    for quotTarget in verifyTargets do
+      if let some info := origConstMap[quotTarget]? then
+        let some info' := kernelEnv.find? quotTarget |
+          throw <| .userError s!"Could not find quotient constant in final kernel env: {quotTarget}"
+        if info != info' then
+          throw <| .userError s!"Quotient constant mismatch on: {quotTarget}"
+    return none
+  catch e =>
+    IO.println "Quotient post-check rejects the solution"
     return some e.toString
 
 def primitiveTargets : M (Array Lean.Name) := do
