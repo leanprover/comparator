@@ -18,10 +18,9 @@ structure Context where
   legalAxioms : Array Lean.Name
   leanPrefix : System.FilePath
   gitLocation : System.FilePath
-  enableNanoda : Bool
   whichLandrun : String
   whichLean4Export : String
-  whichNanoda : String
+  externalKernels : (Std.TreeMap String (Array String))
 
 abbrev M := ReaderT Context IO
 
@@ -33,6 +32,9 @@ structure LandrunArgs where
   readablePaths : Array System.FilePath
   writablePaths : Array System.FilePath
   executablePaths : Array System.FilePath
+
+@[inline]
+def getExternalKernels : M (Std.TreeMap String (Array String)) := do return (← read).externalKernels
 
 @[inline]
 def getTheoremNames : M (Array Lean.Name) := do return (← read).theoremNames
@@ -57,9 +59,6 @@ def getLeanPrefix : M System.FilePath := do return (← read).leanPrefix
 
 @[inline]
 def getGitLocation : M System.FilePath := do return (← read).gitLocation
-
-@[inline]
-def getNanodaEnabled : M Bool := do return (← read).enableNanoda
 
 def queryGitLocation : IO System.FilePath := do
   let out ← IO.Process.run {
@@ -150,24 +149,37 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
     executablePaths := #[leanPrefix]
   }
 
-def runNanoda (solutionExport : String) : M (Option String) := do
-  IO.println "Running nanoda kernel on solution"
-  IO.FS.withTempFile fun config configPath => do
+def runExternalKernel (kernelName : String) (kernelCommand : Array String)
+    (solutionExport : String) : M (Option String) := do
+  IO.println s!"Running {kernelName} kernel on solution"
+  -- just always put out a nanoda-like config file for now
+  IO.FS.withTempFile fun configHandle configPath => do
+  IO.FS.withTempFile fun solutionHandle solutionPath => do
     let legalAxioms ← getLegalAxioms
-    config.putStr <| Lean.Json.compress <| Lean.Json.mkObj [
-      ("use_stdin", true),
+    configHandle.putStr <| Lean.Json.compress <| Lean.Json.mkObj [
+      ("use_stdin", false),
+      ("export_file_path", solutionPath.toString),
       ("permitted_axioms", .arr <| legalAxioms.map (.str ∘ Lean.Name.toString)),
       ("unpermitted_axiom_hard_error", true),
       ("nat_extension", true),
       ("string_extension", true),
     ]
-    config.flush
+    configHandle.flush
+
+    solutionHandle.putStr solutionExport
+    solutionHandle.flush
+
+    let mut kernelArgs := kernelCommand[1...*].toArray
+    if isNanodaKernel kernelName then
+      kernelArgs := kernelArgs.push configPath.toString
+    else
+      kernelArgs := kernelArgs.push solutionPath.toString
 
     let spawnArgs := {
-      cmd := (← read).whichNanoda
-      args := #[configPath.toString],
+      cmd := kernelCommand[0]!,
+      args := kernelArgs,
       envPass := #[]
-      readablePaths := #[configPath.toString]
+      readablePaths := #[configPath.toString, solutionPath.toString]
       writablePaths := #[]
       executablePaths := #[]
     }
@@ -177,26 +189,26 @@ def runNanoda (solutionExport : String) : M (Option String) := do
       let proc ← IO.Process.spawn {
         cmd := (← read).whichLandrun,
         args,
-        stdin := .piped
         env := spawnArgs.envOverride
         cwd := (← getProjectDir)
       }
 
-      let (nanodaStdin, proc) ← proc.takeStdin
-      nanodaStdin.putStr solutionExport
-      nanodaStdin.flush
       let ret ← proc.wait
       if ret != 0 then
-        IO.println "Nanoda kernel rejected the solution"
-        return some s!"Child exited with {ret}"
+        IO.println s!"{kernelName} kernel rejected the solution"
+        return some s!"{kernelName} exited with {ret}"
       else
-        IO.println "Nanoda kernel accepts the solution"
+        IO.println s!"{kernelName} kernel accepts the solution"
         return none
     catch e => do
-      IO.println "Error while interacting with nanoda"
-      return some s!"Error while interacting with nanoda: {e.toString}"
+      IO.println s!"Error while interacting with {kernelName} kernel"
+      return some s!"Error while interacting with {kernelName} kernel: {e.toString}"
+where
+  isNanodaKernel (kernelName : String) : Bool :=
+    -- TODO: get rid of this heuristic
+    kernelName.contains "noda"
 
-def runKernel (solution : Export.ExportedEnv) : M (Option String) := do
+def runBuiltinKernel (solution : Export.ExportedEnv) : M (Option String) := do
   IO.println "Running Lean default kernel on solution."
   let env ← Lean.mkEmptyEnvironment
   let mut kernelEnv := env.toKernelEnv
@@ -253,14 +265,10 @@ def primitiveTargets : M (Array Lean.Name) := do
   ]
 
 def builtinTargets : M (Array Lean.Name) := do
-  if ← getNanodaEnabled then
-    -- TODO: fix when nanoda fixes its string handling
-    let mut additional := #[``Nat, ``String, ``String.mk, ``Char]
-    if (← getLegalAxioms).contains ``Quot.sound then
-      additional := additional ++ #[``Quot, ``Quot.mk, ``Quot.lift, ``Quot.ind]
-    return additional
-  else
-    return #[]
+  let mut additional := #[``Nat, ``String, ``String.mk, ``Char]
+  if (← getLegalAxioms).contains ``Quot.sound then
+    additional := additional ++ #[``Quot, ``Quot.mk, ``Quot.lift, ``Quot.ind]
+  return additional
 
 def stringStream (s : String) : BaseIO IO.FS.Stream := do
   let ref ← IO.mkRef {
@@ -278,9 +286,9 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
   IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
   let mut result := none
-  if ← getNanodaEnabled then
-    result := result <|> (← runNanoda solutionExport)
-  result := result <|> (← runKernel solution)
+  for (kernelName, kernelCommand) in ← getExternalKernels do
+    result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport)
+  result := result <|> (← runBuiltinKernel solution)
   if let some error := result then
     throw <| IO.userError error
 
@@ -306,7 +314,8 @@ structure Config where
   theorem_names : Array String
   definition_names : Option (Array String) := none
   permitted_axioms : Array String
-  enable_nanoda : Bool
+  enable_nanoda? : Option Bool
+  external_kernels? : Option (Std.TreeMap String (Array String))
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -315,7 +324,23 @@ def M.run (x : M α) (cfg : Config) : IO α := do
   let gitLocation ← queryGitLocation
   let whichLean4Export := (← IO.getEnv "COMPARATOR_LEAN4EXPORT").getD "lean4export"
   let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
-  let whichNanoda := (← IO.getEnv "COMPARATOR_NANODA").getD "nanoda_bin"
+  let mut externalKernels := cfg.external_kernels?.getD {}
+  let defaultNanoda := "nanoda_bin"
+  let nanodaOverride? ← IO.getEnv "COMPARATOR_NANODA"
+
+  if cfg.enable_nanoda?.getD false && !externalKernels.isEmpty then
+    throw <| .userError "Cannot use enable_nanoda and an external kernel list at the same time, register nanoda in the list instead."
+
+  for (kernelName, kernelCommand) in externalKernels do
+    if kernelCommand.isEmpty then
+      throw <| .userError s!"{kernelName} has an empty command"
+
+  if cfg.enable_nanoda?.getD false then
+    let whichNanoda := nanodaOverride?.getD defaultNanoda
+    externalKernels := externalKernels.insert "nanoda" #[whichNanoda]
+  else if let some nanodaOverride := nanodaOverride? then
+    externalKernels := externalKernels.modify "nanoda" fun cmd => cmd.set! 0 nanodaOverride
+
   ReaderT.run x {
     projectDir := cwd
     challengeModule := cfg.challenge_module.toName,
@@ -325,10 +350,9 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     legalAxioms := cfg.permitted_axioms.map String.toName,
     leanPrefix := leanPrefix,
     gitLocation := gitLocation,
-    enableNanoda := cfg.enable_nanoda,
-    whichLean4Export,
-    whichLandrun,
-    whichNanoda
+    whichLean4Export := whichLean4Export,
+    whichLandrun := whichLandrun,
+    externalKernels := externalKernels
   }
 
 end Comparator
