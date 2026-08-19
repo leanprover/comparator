@@ -24,6 +24,11 @@ jobs:
           repository: Zouuup/landrun
           path: landrun
 
+      - uses: actions/checkout@v4
+        with:
+          repository: ammkrn/nanoda_lib
+          path: nanoda
+
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
@@ -31,6 +36,10 @@ jobs:
       - name: Build landrun
         working-directory: landrun
         run: go build -o landrun cmd/landrun/main.go
+
+      - name: Build nanoda
+        working-directory: nanoda
+        run: cargo build --release
 
       - uses: leanprover/lean-action@v1
         with:
@@ -43,5 +52,5 @@ jobs:
       - name: Run comparator tests
         working-directory: comparator
         run: |
-          export PATH="$GITHUB_WORKSPACE/lean4export/.lake/build/bin:$GITHUB_WORKSPACE/landrun:$PATH"
+          export PATH="$GITHUB_WORKSPACE/nanoda/target/release:$GITHUB_WORKSPACE/lean4export/.lake/build/bin:$GITHUB_WORKSPACE/landrun:$PATH"
           lean --run runtests.lean
