@@ -18,7 +18,7 @@ Comparator is configured through a JSON file:
     "challenge_module": "Challenge",
     "solution_module": "Solution",
     "theorem_names": ["todo1"],
-    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
 }
 ```
 Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
@@ -34,8 +34,8 @@ Given the following assumptions:
 3. You have the `landrun` and `lean4export` binary in `PATH`
 4. `landrun` works correctly on your system and `Solution.lean` does not
    exploit any bugs in `landrun` that allow a process to escape its sandbox
-5. The Lean kernel is correct (with `enable_nanoda` this can be reduced to "The lean or the nanoda kernel
-   are correct")
+5. The Lean kernel is correct (with `external_kernels` this can be reduced to
+   "At least one of the Lean kernel or the `external_kernels` is correct")
 6. You are not running this under a privileged user
 
 If the following command succeeds:
@@ -74,16 +74,16 @@ in the `external_kernels` list:
     }
 }
 ```
-Comparator will execute the command described by the `["nanoda_bin"]` array and additionally pass a
+Comparator will execute the command described by the `mykernel` array and additionally pass a
 file, containing the solution export to the kernel, in this case: `kernel_bin --threads=4 --paranoid export.ndjson`
 
-For backwards compatability reasons users may instead set `enable_nanoda: true` to obtain a config
-that calls `nanoda_bin`. Furthermore, comparator currently attempts to detect `nanoda` style kernels
-by checking wheter the name contains the string `noda` and instead passing a `nanoda` style
-`config.json` to them. This is only intended as a migration path while the kernel eco system
-standartizes on having an option to receive the input file as a `CLI` argument.
+For backwards compatibility reasons users may instead set `enable_nanoda: true` to obtain a config
+that calls `nanoda_bin`. Furthermore, comparator currently attempts to detect `nanoda`-style kernels
+by checking whether the name contains the string `noda` and instead passing a `nanoda`-style
+`config.json` to them. This is only intended as a migration path while the kernel ecosystem
+moves toward having an option to receive the input file as a `CLI` argument.
 
-For development purposes, comparator supports overridding `nanoda` specifically using the
+For development purposes, comparator supports overriding `nanoda` specifically using the
 `COMPARATOR_NANODA` environment variable.
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
@@ -122,8 +122,7 @@ All of the holes must then be put into the `definition_names` field in `configur
     "solution_module": "Solution",
     "theorem_names": ["large_lt"],
     "definition_names": ["large"],
-    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
-    "enable_nanoda": false
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
 }
 ```
 For all `definition_names`, comparator ensures that in the solution:
