@@ -19,7 +19,6 @@ Comparator is configured through a JSON file:
     "solution_module": "Solution",
     "theorem_names": ["todo1"],
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
-    "enable_nanoda": false
 }
 ```
 Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sorry` (or any other proof)
@@ -62,11 +61,30 @@ if you have obtained a fully pre-built `.lake` directory through other means and
 checking environment, `Solution.lean` will not be rebuilt.
 
 ## Checking with Additional Kernels
-Comparator currently supports checking with the [nanoda](https://github.com/ammkrn/nanoda_lib)
-kernel in addition to the builtin Lean one. To do this you need to set the `enable_nanoda` flag in
-the JSON configuration to `true`, and the `nanoda_bin` binary must be available to comparator through
-`PATH` or the `COMPARATOR_NANODA` environment variable.
+Comparator can additionally check solutions with external kernels. To do this you must register them
+in the `external_kernels` list:
+```
+{
+    "challenge_module": "Challenge",
+    "solution_module": "Solution",
+    "theorem_names": ["todo1"],
+    "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+    "external_kernels": {
+        "mykernel": ["kernel_bin", "--threads=4", "--paranoid"]
+    }
+}
+```
+Comparator will execute the command described by the `["nanoda_bin"]` array and additionally pass a
+file, containing the solution export to the kernel, in this case: `kernel_bin --threads=4 --paranoid export.ndjson`
 
+For backwards compatability reasons users may instead set `enable_nanoda: true` to obtain a config
+that calls `nanoda_bin`. Furthermore, comparator currently attempts to detect `nanoda` style kernels
+by checking wheter the name contains the string `noda` and instead passing a `nanoda` style
+`config.json` to them. This is only intended as a migration path while the kernel eco system
+standartizes on having an option to receive the input file as a `CLI` argument.
+
+For development purposes, comparator supports overridding `nanoda` specifically using the
+`COMPARATOR_NANODA` environment variable.
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
 simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
