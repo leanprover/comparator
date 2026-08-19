@@ -328,8 +328,8 @@ def M.run (x : M α) (cfg : Config) : IO α := do
   let defaultNanoda := "nanoda_bin"
   let nanodaOverride? ← IO.getEnv "COMPARATOR_NANODA"
 
-  if cfg.enable_nanoda?.getD false && externalKernels.contains "nanoda" then
-    throw <| .userError "Cannot use enable_nanoda and an external kernel list with nanoda at the same time"
+  if cfg.enable_nanoda?.getD false && !externalKernels.isEmpty then
+    throw <| .userError "Cannot use enable_nanoda and an external kernel list at the same time, register nanoda in the list instead."
 
   for (kernelName, kernelCommand) in externalKernels do
     if kernelCommand.isEmpty then
