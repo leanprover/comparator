@@ -25,6 +25,10 @@ open Lean System.FilePath IO.FS IO.Process System
 
 structure TestConfig where
   exit_code : Nat
+  required_path : Option String := none
+  release_path : Option String := none
+  forbidden_path : Option String := none
+  settle_ms : Option Nat := none
   linux_only : Option Bool := none
   deriving FromJson, ToJson
 
@@ -107,6 +111,19 @@ def runTestProject (projectPath : FilePath) (projectName : String) (_testsDir : 
 
     let exitCode ← runCommandInDir tempDir "lake" #["env", comparatorPath.toString, "config.json"]
 
+    if let some requiredPath := config.required_path then
+      if !(← (tempDir / requiredPath).pathExists) then
+        IO.FS.removeDirAll tempDir
+        return TestResult.error projectName s!"required path was not created: {requiredPath}"
+    if let some releasePath := config.release_path then
+      IO.FS.writeFile (tempDir / releasePath) ""
+    if let some settleMs := config.settle_ms then
+      IO.sleep settleMs.toUInt32
+    if let some forbiddenPath := config.forbidden_path then
+      if ← (tempDir / forbiddenPath).pathExists then
+        IO.FS.removeDirAll tempDir
+        return TestResult.error projectName s!"forbidden path was created: {forbiddenPath}"
+
     IO.FS.removeDirAll tempDir
 
     if exitCode == config.exit_code then
@@ -151,6 +168,13 @@ def runLandlockTests (comparatorPath : FilePath) : IO TestResult := do
     return .success "landlock_hardening"
   return .failure "landlock_hardening" 0 exitCode
 
+def runNamespaceTests (comparatorPath : FilePath) : IO TestResult := do
+  let exitCode ← runCommandInDir "." "lake"
+    #["env", "lean", "--run", "tests/Namespace.lean", comparatorPath.toString]
+  if exitCode == 0 then
+    return .success "namespace_hardening"
+  return .failure "namespace_hardening" 0 exitCode
+
 /-- Run comparator integration tests. When `args` is non-empty, only tests whose
 project name contains one of the given strings (as a substring) are executed. -/
 def main (args : List String) : IO UInt32 := do
@@ -175,7 +199,7 @@ def main (args : List String) : IO UInt32 := do
 
   let comparatorPath ← IO.FS.realPath <| ".lake" / "build" / "bin" / "comparator"
 
-  let mut results := #[← runLandlockTests comparatorPath]
+  let mut results := #[← runLandlockTests comparatorPath, ← runNamespaceTests comparatorPath]
   let mut allPassed := results.all fun
     | .success _ => true
     | _ => false

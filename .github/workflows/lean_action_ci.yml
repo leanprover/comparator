@@ -49,6 +49,29 @@ jobs:
         working-directory: lean4export
         run: lake build
 
+      - name: Test informative strict-mode failure
+        working-directory: comparator
+        run: |
+          if COMPARATOR_UNSHARE=/bin/false .lake/build/bin/comparator tests/projects/fail_closed_match/config.json >namespace-error.log 2>&1; then
+            echo "Strict namespace preflight unexpectedly succeeded."
+            exit 1
+          fi
+          grep -F "util-linux" namespace-error.log
+          grep -F "no workload command was started" namespace-error.log
+
+      - name: Enable unprivileged user namespaces
+        run: |
+          if [[ -e /proc/sys/user/max_user_namespaces ]] &&
+             [[ "$(sysctl -n user.max_user_namespaces)" == 0 ]]; then
+            sudo sysctl -w user.max_user_namespaces=15000
+          fi
+          if [[ -e /proc/sys/kernel/unprivileged_userns_clone ]]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       - name: Run comparator tests
         working-directory: comparator
         run: |

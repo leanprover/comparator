@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Challenge",
+  "solution_module": "Solution",
+  "theorem_names": ["cleanupTest"],
+  "permitted_axioms": [],
+  "fail_closed": true
+}
