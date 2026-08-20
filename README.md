@@ -3,14 +3,16 @@ Comparator is a trustworthy judge for Lean proofs. It relies on having an existi
 well as:
 1. [`landrun`](https://github.com/Zouuup/landrun), compiled from the `main` branch's source, present in `PATH`
 2. [`lean4export`](https://github.com/leanprover/lean4export/), at a version that is compatible with whatever Lean version your project is targeting, present in `PATH`
-3. (optional) [nanoda](https://github.com/ammkrn/nanoda_lib/), compiled with a recent version of Rust.
+3. On Linux, util-linux versions of `setpriv` and `unshare` present in `PATH`
+4. (optional) [nanoda](https://github.com/ammkrn/nanoda_lib/), compiled with a recent version of Rust.
    This is only necessary if you want to check with the nanoda kernel in addition to the builtin one.
    `cargo build --release` will place `nanoda_bin` in the `target/release` directory of the checked-out directory,
    this directory must be present in `PATH`
 
 > [!NOTE]
 > Alternatively full paths to these binaries can be specified using the environment variables
-> `COMPARATOR_LANDRUN`, `COMPARATOR_LEAN4EXPORT`, and `COMPARATOR_NANODA` when invoking Comparator.
+> `COMPARATOR_LANDRUN`, `COMPARATOR_LEAN4EXPORT`, `COMPARATOR_NANODA`, `COMPARATOR_SETPRIV`, and
+> `COMPARATOR_UNSHARE` when invoking Comparator.
 
 Comparator is configured through a JSON file:
 ```
@@ -37,6 +39,8 @@ Given the following assumptions:
 5. The Lean kernel is correct (with `external_kernels` this can be reduced to
    "At least one of the Lean kernel or the `external_kernels` is correct")
 6. You are not running this under a privileged user
+7. The host permits unprivileged user, PID, and mount namespaces, unless Comparator reports that it
+   is falling back without descendant containment
 
 If the following command succeeds:
 ```
@@ -86,14 +90,15 @@ moves toward having an option to receive the input file as a `CLI` argument.
 For development purposes, comparator supports overriding `nanoda` specifically using the
 `COMPARATOR_NANODA` environment variable.
 
-## Refusing to Run Without an Enforced Landlock Sandbox
+## Refusing to Run Without Sandboxing and Descendant Containment
 
 Comparator invokes Landrun with `--best-effort` so that the installed Landrun can use the best
 Landlock ABI available on the running kernel. This also means Landrun may run without applying a
 policy when Landlock is unavailable. That remains the backwards-compatible default.
 
 Set `"fail_closed": true` in the configuration when silently running without filesystem sandboxing
-is unacceptable. Before starting any workload command, Comparator then runs its own executable
+or descendant containment is unacceptable. Before starting any workload command, Comparator runs a
+namespace preflight and then runs its own executable
 through Landrun and verifies that the normal Comparator policy denies a write to a file which is
 writable outside the sandbox. If Landlock is unavailable or disabled, Landrun is missing, or a no-op
 Landrun shim is configured, Comparator exits with an error ending in:
@@ -104,7 +109,28 @@ fail_closed is enabled, so no workload command was started
 
 This is an end-to-end check for basic filesystem enforcement, not a check for a particular Landlock
 ABI or every access right. Landrun and the kernel remain trusted to enforce the requested policy.
-The default is `false`.
+
+When the namespace preflight succeeds, every workload Landrun command is supervised by `setpriv` and
+`unshare` in a fresh user, PID, and mount namespace with a private `/proc`. Remaining descendants are
+killed when the command or Comparator dies. If the preflight fails and `fail_closed` is `false`,
+Comparator warns once and runs Landrun without descendant containment. It never retries a workload
+command.
+
+The error includes the failing command's diagnostic and relevant sysctl suggestions. For example,
+current disposable Ubuntu CI runners may require:
+
+```sh
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
+
+Depending on the reported setting, a dedicated runner may instead require
+`sudo sysctl -w user.max_user_namespaces=15000` or
+`sudo sysctl -w kernel.unprivileged_userns_clone=1`. These settings affect the host: do not apply
+them blindly on a shared machine. Ask its administrator or use a compatible runner. A container
+which forbids mounting a private `/proc` cannot provide strict descendant containment.
+
+The default is `false`, preserving compatibility with an explicit warning when containment is
+unavailable.
 
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
@@ -197,19 +223,21 @@ We generally adopt a policy of not loading olean files as they just get mmaped i
 space and then dereferenced and are as such a potential point of attack for sophisticated adversaries.
 
 The comparator performs the following steps to ensure these properties:
-1. Build `Challenge` using `lake` in a `landrun` sandbox that has:
+1. Preflight user, PID, and mount namespaces. When available, supervise every sandboxed command in a
+   fresh PID namespace so its remaining descendants are killed before Comparator continues.
+2. Build `Challenge` using `lake` in a `landrun` sandbox that has:
    - read access to the entire file system and write access to `/dev`
    - write access to the `.lake` directory of the project
-2. Run `lean4export` on the produced `Challenge.olean` in a `landrun` sandbox that has:
+3. Run `lean4export` on the produced `Challenge.olean` in a `landrun` sandbox that has:
    - read access to the entire file system and write access to `/dev`
-3. Repeat the same build sandboxed and export sandboxed steps with `Solution`
-4. Verify that all declarations used in the statement of all relevant theorems in `Challenge`
+4. Repeat the same build sandboxed and export sandboxed steps with `Solution`
+5. Verify that all declarations used in the statement of all relevant theorems in `Challenge`
    are the same as in the `Solution` environment.
    This always includes the declarations from `Init` with special meaning to the kernel. Both `Challenge`
    and `Solution` therefore need to import the default prelude.
-5. Verify that the body of all relevant theorems in the `Solution` environment only uses axioms
+6. Verify that the body of all relevant theorems in the `Solution` environment only uses axioms
    listed in `permitted_axioms`
-6. Replay the `Solution` environment into the Lean kernel. Doing this within the same process as the
+7. Replay the `Solution` environment into the Lean kernel. Doing this within the same process as the
    comparator should be safe as the worst thing that can happen at this point is an exploit that
    makes the kernel accept when it should reject and that same exploit should also be applicable
    from within an external process.

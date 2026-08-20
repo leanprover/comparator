@@ -1,0 +1,8 @@
+{
+  "exit_code": 0,
+  "required_path": ".lake/descendant-started",
+  "release_path": ".lake/release-descendant",
+  "forbidden_path": ".lake/descendant-survived",
+  "settle_ms": 500,
+  "linux_only": true
+}
