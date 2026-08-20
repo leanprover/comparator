@@ -5,6 +5,7 @@ Authors: Henrik Böving
 -/
 import Lean
 import Comparator
+import Comparator.Landlock
 import Export.Parse
 
 namespace Comparator
@@ -78,7 +79,7 @@ def queryLeanPrefix (projectDir : System.FilePath) : IO System.FilePath := do
   return out.trimAscii.toString
 
 def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
-  let args := #["--best-effort", "--ro", "/", "--rw", "/dev", "-ldd", "-add-exec"]
+  let args := Landlock.baseArgs
   let args := spawnArgs.envPass.foldl (init := args) (fun acc env => acc ++ #["--env", env])
   let args := spawnArgs.readablePaths.foldl (init := args) (fun acc path => acc ++ #["--ro", path.toString])
   let args := spawnArgs.writablePaths.foldl (init := args) (fun acc path => acc ++ #["--rwx", path.toString])
@@ -316,14 +317,19 @@ structure Config where
   permitted_axioms : Array String
   enable_nanoda? : Option Bool
   external_kernels? : Option (Std.TreeMap String (Array String))
+  /-- Verify that Landrun enforces Comparator's filesystem policy before starting any workload.
+  Defaults to `false`. -/
+  fail_closed? : Option Bool
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
   let cwd ← IO.Process.getCurrentDir
+  let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
+  if cfg.fail_closed?.getD false then
+    Landlock.requireEnforcement whichLandrun (← IO.appPath) cwd
   let leanPrefix ← queryLeanPrefix cwd
   let gitLocation ← queryGitLocation
   let whichLean4Export := (← IO.getEnv "COMPARATOR_LEAN4EXPORT").getD "lean4export"
-  let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
   let mut externalKernels := cfg.external_kernels?.getD {}
   let defaultNanoda := "nanoda_bin"
   let nanodaOverride? ← IO.getEnv "COMPARATOR_NANODA"
@@ -358,6 +364,11 @@ def M.run (x : M α) (cfg : Config) : IO α := do
 end Comparator
 
 def main (args : List String) : IO Unit := do
+  if args.head? == some "--landlock-enforcement-probe" then
+    let some (path : String) := args[1]?
+      | throw <| .userError "The Landlock enforcement probe expected a file path"
+    Comparator.Landlock.runProbeChild path
+    return
   let some (configPath : String) := args[0]?
     | throw <| .userError "Expected config file path as first argument."
   let content ← IO.FS.readFile configPath

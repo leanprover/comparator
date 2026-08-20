@@ -25,6 +25,7 @@ open Lean System.FilePath IO.FS IO.Process System
 
 structure TestConfig where
   exit_code : Nat
+  linux_only : Option Bool := none
   deriving FromJson, ToJson
 
 inductive TestResult
@@ -86,11 +87,14 @@ def readTestConfig (configPath : FilePath) : IO TestConfig := do
 def getTempDir : IO FilePath := do
   return "/tmp" / s!"lean_test_{← IO.rand 0 999999}"
 
-def runTestProject (projectPath : FilePath) (projectName : String) (testsDir : FilePath)
+def runTestProject (projectPath : FilePath) (projectName : String) (_testsDir : FilePath)
     (comparatorPath : FilePath) : IO TestResult := do
   try
     let configPath := projectPath / "test.json"
     let config ← readTestConfig configPath
+
+    if config.linux_only.getD false && !System.Platform.isLinux then
+      return TestResult.success projectName
 
     let tempDir ← getTempDir
     IO.FS.createDirAll tempDir
@@ -140,6 +144,13 @@ def printTestResult (result : TestResult) : IO Unit := do
   | .error name msg =>
     IO.println s!"✗ {name}: ERROR - {msg}"
 
+def runLandlockTests (comparatorPath : FilePath) : IO TestResult := do
+  let exitCode ← runCommandInDir "." "lake"
+    #["env", "lean", "--run", "tests/Landlock.lean", comparatorPath.toString]
+  if exitCode == 0 then
+    return .success "landlock_hardening"
+  return .failure "landlock_hardening" 0 exitCode
+
 /-- Run comparator integration tests. When `args` is non-empty, only tests whose
 project name contains one of the given strings (as a substring) are executed. -/
 def main (args : List String) : IO UInt32 := do
@@ -164,8 +175,10 @@ def main (args : List String) : IO UInt32 := do
 
   let comparatorPath ← IO.FS.realPath <| ".lake" / "build" / "bin" / "comparator"
 
-  let mut allPassed := true
-  let mut results := #[]
+  let mut results := #[← runLandlockTests comparatorPath]
+  let mut allPassed := results.all fun
+    | .success _ => true
+    | _ => false
   for projectPath in projects do
     let projectName := projectPath.fileName.get!
     IO.println s!"\n## Running test: {projectName}\n"
