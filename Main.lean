@@ -6,6 +6,7 @@ Authors: Henrik Böving
 import Lean
 import Comparator
 import Comparator.Landlock
+import Comparator.Namespace
 import Export.Parse
 
 namespace Comparator
@@ -22,6 +23,8 @@ structure Context where
   whichLandrun : String
   whichLean4Export : String
   externalKernels : (Std.TreeMap String (Array String))
+  namespaceTools : Namespace.Tools
+  namespaceEnabled : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -86,10 +89,17 @@ def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := spawnArgs.executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
   args ++ #["--", spawnArgs.cmd] ++ spawnArgs.args
 
-def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
+def buildSandboxInvocation (spawnArgs : LandrunArgs) : M (String × Array String) := do
+  let landrun := (← read).whichLandrun
   let args := buildLandrunArgs spawnArgs
+  if (← read).namespaceEnabled then
+    return Namespace.wrap (← read).namespaceTools landrun args
+  return (landrun, args)
+
+def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
+  let (cmd, args) ← buildSandboxInvocation spawnArgs
   let { stdout, stderr, exitCode } ← IO.Process.output {
-    cmd := (← read).whichLandrun,
+    cmd,
     args,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
@@ -101,9 +111,9 @@ def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
 
 
 def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
-  let args := buildLandrunArgs spawnArgs
+  let (cmd, args) ← buildSandboxInvocation spawnArgs
   let proc ← IO.Process.spawn {
-    cmd := (← read).whichLandrun,
+    cmd,
     args,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
@@ -184,11 +194,11 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
       writablePaths := #[]
       executablePaths := #[]
     }
-    let args := buildLandrunArgs spawnArgs
+    let (cmd, args) ← buildSandboxInvocation spawnArgs
 
     try
       let proc ← IO.Process.spawn {
-        cmd := (← read).whichLandrun,
+        cmd,
         args,
         env := spawnArgs.envOverride
         cwd := (← getProjectDir)
@@ -324,9 +334,12 @@ structure Config where
 
 def M.run (x : M α) (cfg : Config) : IO α := do
   let cwd ← IO.Process.getCurrentDir
+  let comparatorPath ← IO.appPath
+  let namespaceTools ← Namespace.configuredTools
+  let namespaceEnabled ← Namespace.select (cfg.fail_closed?.getD false) namespaceTools comparatorPath cwd
   let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
   if cfg.fail_closed?.getD false then
-    Landlock.requireEnforcement whichLandrun (← IO.appPath) cwd
+    Landlock.requireEnforcement whichLandrun comparatorPath cwd
   let leanPrefix ← queryLeanPrefix cwd
   let gitLocation ← queryGitLocation
   let whichLean4Export := (← IO.getEnv "COMPARATOR_LEAN4EXPORT").getD "lean4export"
@@ -358,6 +371,8 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     gitLocation := gitLocation,
     whichLean4Export := whichLean4Export,
     whichLandrun := whichLandrun,
+    namespaceTools := namespaceTools,
+    namespaceEnabled := namespaceEnabled,
     externalKernels := externalKernels
   }
 
@@ -368,6 +383,9 @@ def main (args : List String) : IO Unit := do
     let some (path : String) := args[1]?
       | throw <| .userError "The Landlock enforcement probe expected a file path"
     Comparator.Landlock.runProbeChild path
+    return
+  if args.head? == some "--namespace-probe" then
+    Comparator.Namespace.runProbeChild
     return
   let some (configPath : String) := args[0]?
     | throw <| .userError "Expected config file path as first argument."
