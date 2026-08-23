@@ -187,6 +187,7 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
       ("export_file_path", solutionPath.toString),
       ("permitted_axioms", .arr <| legalAxioms.map (.str ∘ Lean.Name.toString)),
       ("unpermitted_axiom_hard_error", true),
+      ("num_threads", 4),
       ("nat_extension", true),
       ("string_extension", true),
     ]
