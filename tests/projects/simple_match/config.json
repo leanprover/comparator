@@ -3,5 +3,7 @@
     "solution_module": "Solution",
     "theorem_names": ["comm"],
     "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
-    "enable_nanoda": false
+    "enable_nanoda": false,
+    "external_kernels": {"fixture": ["true"]},
+    "measurement_command": ["/bin/sh", "measurement-adapter.sh", "measurement.log"]
 }

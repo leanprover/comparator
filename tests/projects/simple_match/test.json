@@ -1,3 +1,4 @@
 {
-        "exit_code": 0
+    "exit_code": 0,
+    "expected_measurement_phases": ["build", "build", "checker"]
 }
