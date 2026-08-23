@@ -21,6 +21,7 @@ structure Context where
   whichLandrun : String
   whichLean4Export : String
   externalKernels : (Std.TreeMap String (Array String))
+  measurementCommand : Option (Array String)
 
 abbrev M := ReaderT Context IO
 
@@ -85,10 +86,31 @@ def buildLandrunArgs (spawnArgs : LandrunArgs) : Array String :=
   let args := spawnArgs.executablePaths.foldl (init := args) (fun acc path => acc ++ #["--rox", path.toString])
   args ++ #["--", spawnArgs.cmd] ++ spawnArgs.args
 
-def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
+/-- Optionally place a trusted measurement adapter outside landrun.
+
+The adapter receives `--phase <phase> -- <landrun> <args...>` and must preserve
+the wrapped process's stdout, stderr, and exit code. This lets replay
+infrastructure measure the sandboxed solution build/export separately from an
+external checker without moving either untrusted operation outside landrun.
+Ordinary comparator callers configure no adapter and retain the exact previous
+execution path. -/
+def measuredCommand (landrun : String) (args : Array String)
+    (phase : Option String) (adapter : Option (Array String)) : String × Array String :=
+  match phase, adapter with
+  | some phase, some command =>
+    if command.isEmpty then
+      (landrun, args)
+    else
+      (command[0]!, command[1...*].toArray ++ #["--phase", phase, "--", landrun] ++ args)
+  | _, _ => (landrun, args)
+
+def runSandBoxedWithStdout (spawnArgs : LandrunArgs)
+    (measurementPhase : Option String := none) : M String := do
   let args := buildLandrunArgs spawnArgs
+  let (cmd, args) := measuredCommand
+    (← read).whichLandrun args measurementPhase (← read).measurementCommand
   let { stdout, stderr, exitCode } ← IO.Process.output {
-    cmd := (← read).whichLandrun,
+    cmd
     args,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
@@ -99,10 +121,13 @@ def runSandBoxedWithStdout (spawnArgs : LandrunArgs) : M String := do
   return stdout
 
 
-def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
+def runSandBoxed (spawnArgs : LandrunArgs)
+    (measurementPhase : Option String := none) : M Unit := do
   let args := buildLandrunArgs spawnArgs
+  let (cmd, args) := measuredCommand
+    (← read).whichLandrun args measurementPhase (← read).measurementCommand
   let proc ← IO.Process.spawn {
-    cmd := (← read).whichLandrun,
+    cmd
     args,
     env := spawnArgs.envOverride
     cwd := (← getProjectDir)
@@ -111,7 +136,7 @@ def runSandBoxed (spawnArgs : LandrunArgs) : M Unit := do
   if ret != 0 then
     throw <| .userError s!"Child exited with {ret}"
 
-def safeLakeBuild (target : Lean.Name) : M Unit := do
+def safeLakeBuild (target : Lean.Name) (measurementPhase : Option String := none) : M Unit := do
   IO.println s!"Building {target}"
   let leanPrefix ← getLeanPrefix
   let projectDir ← getProjectDir
@@ -129,9 +154,10 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
     readablePaths := #[projectDir]
     writablePaths := #[dotLakeDir]
     executablePaths := #[leanPrefix, gitLocation]
-  }
+  } measurementPhase
 
-def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
+def safeExport (module : Lean.Name) (decls : Array Lean.Name)
+    (measurementPhase : Option String := none) : M String := do
   IO.println s!"Exporting {decls} from {module}"
   let baseArgs := #[module.toString, "--"]
   let args := decls.foldl (·.push <| ·.toString) baseArgs
@@ -147,7 +173,7 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
     readablePaths := #[projectDir, dotLakeDir]
     writablePaths := #[]
     executablePaths := #[leanPrefix]
-  }
+  } measurementPhase
 
 def runExternalKernel (kernelName : String) (kernelCommand : Array String)
     (solutionExport : String) : M (Option String) := do
@@ -184,10 +210,12 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
       executablePaths := #[]
     }
     let args := buildLandrunArgs spawnArgs
+    let (cmd, args) := measuredCommand
+      (← read).whichLandrun args (some "checker") (← read).measurementCommand
 
     try
       let proc ← IO.Process.spawn {
-        cmd := (← read).whichLandrun,
+        cmd
         args,
         env := spawnArgs.envOverride
         cwd := (← getProjectDir)
@@ -301,8 +329,8 @@ def compareIt : M Unit := do
   let challengeExport ← safeExport challengeModule exportTargets
 
   let solutionModule ← getSolutionModule
-  safeLakeBuild solutionModule
-  let solutionExport ← safeExport solutionModule exportTargets
+  safeLakeBuild solutionModule (some "build")
+  let solutionExport ← safeExport solutionModule exportTargets (some "build")
 
   verifyMatch challengeExport solutionExport
 
@@ -316,6 +344,7 @@ structure Config where
   permitted_axioms : Array String
   enable_nanoda? : Option Bool
   external_kernels? : Option (Std.TreeMap String (Array String))
+  measurement_command? : Option (Array String)
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -325,6 +354,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
   let whichLean4Export := (← IO.getEnv "COMPARATOR_LEAN4EXPORT").getD "lean4export"
   let whichLandrun := (← IO.getEnv "COMPARATOR_LANDRUN").getD "landrun"
   let mut externalKernels := cfg.external_kernels?.getD {}
+  let measurementCommand := cfg.measurement_command?
   let defaultNanoda := "nanoda_bin"
   let nanodaOverride? ← IO.getEnv "COMPARATOR_NANODA"
 
@@ -334,6 +364,10 @@ def M.run (x : M α) (cfg : Config) : IO α := do
   for (kernelName, kernelCommand) in externalKernels do
     if kernelCommand.isEmpty then
       throw <| .userError s!"{kernelName} has an empty command"
+
+  if let some command := measurementCommand then
+    if command.isEmpty then
+      throw <| .userError "measurement_command must not be empty"
 
   if cfg.enable_nanoda?.getD false then
     let whichNanoda := nanodaOverride?.getD defaultNanoda
@@ -352,7 +386,8 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     gitLocation := gitLocation,
     whichLean4Export := whichLean4Export,
     whichLandrun := whichLandrun,
-    externalKernels := externalKernels
+    externalKernels := externalKernels,
+    measurementCommand
   }
 
 end Comparator
