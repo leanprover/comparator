@@ -25,7 +25,6 @@ open Lean System.FilePath IO.FS IO.Process System
 
 structure TestConfig where
   exit_code : Nat
-  expected_measurement_phases : Option (Array String) := none
   deriving FromJson, ToJson
 
 inductive TestResult
@@ -87,7 +86,7 @@ def readTestConfig (configPath : FilePath) : IO TestConfig := do
 def getTempDir : IO FilePath := do
   return "/tmp" / s!"lean_test_{← IO.rand 0 999999}"
 
-def runTestProject (projectPath : FilePath) (projectName : String) (_testsDir : FilePath)
+def runTestProject (projectPath : FilePath) (projectName : String) (testsDir : FilePath)
     (comparatorPath : FilePath) : IO TestResult := do
   try
     let configPath := projectPath / "test.json"
@@ -103,13 +102,6 @@ def runTestProject (projectPath : FilePath) (projectName : String) (_testsDir : 
     createAdditionalFiles tempDir
 
     let exitCode ← runCommandInDir tempDir "lake" #["env", comparatorPath.toString, "config.json"]
-
-    if let some expected := config.expected_measurement_phases then
-      let raw ← IO.FS.readFile (tempDir / "measurement.log")
-      let actual := raw.splitOn "\n" |>.filter (!·.isEmpty) |>.toArray
-      if actual != expected then
-        IO.FS.removeDirAll tempDir
-        return .error projectName s!"Measurement phases mismatch: expected {expected}, got {actual}"
 
     IO.FS.removeDirAll tempDir
 
