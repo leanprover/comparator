@@ -25,27 +25,6 @@ Where `Challenge.lean` contains at least a theorem named `todo1` that has a `sor
 and `Solution.lean` is provided by a party trying to convince you that they have proven `todo1` by
 writing out the same theorem but with a proper proof attached.
 
-### Optional phase measurement adapter
-
-A trusted caller may set `measurement_command` to a non-empty argv array. For
-the untrusted solution only, Comparator then invokes the adapter outside
-Landrun as:
-
-```
-<measurement_command...> --phase build -- <landrun> <args...>
-<measurement_command...> --phase checker -- <landrun> <args...>
-```
-
-The `build` phase is emitted separately for the solution build and export. The
-`checker` phase is emitted for each configured external kernel. The adapter
-must transparently preserve the wrapped command's standard streams and exit
-status; it may aggregate wall time or performance counters in a location that
-untrusted code cannot write. Challenge build/export and the built-in kernel
-are deliberately not labeled as solution build or external-checker cost.
-
-With no `measurement_command`, Comparator executes Landrun directly as before.
-An empty adapter argv is rejected rather than silently disabling measurement.
-
 Given the following assumptions:
 1. The transitive closure of imports of `Challenge.lean` as well as `lakefile.toml`/`lakefile.lean`
    are controlled by you or trustworthy.
