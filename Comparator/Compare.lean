@@ -34,6 +34,13 @@ def addWorklist (n : Lean.Name) : CompareM Unit := do
 def addRelevantConsts (info : Lean.ConstantInfo) : CompareM Unit := do
   runForUsedConsts info addWorklist
 
+/-- Check whether a ConstantInfo's value expression references `sorryAx`. -/
+def hasSorryAxValue : Lean.ConstantInfo → Bool
+  | .defnInfo dv => dv.value.getUsedConstants.any (· == ``sorryAx)
+  | .opaqueInfo ov => ov.value.getUsedConstants.any (· == ``sorryAx)
+  | .thmInfo tv => tv.value.getUsedConstants.any (· == ``sorryAx)
+  | _ => false
+
 partial def loop : CompareM Unit := do
   if (← get).worklist.isEmpty then
     return ()
@@ -52,8 +59,13 @@ partial def loop : CompareM Unit := do
       solutionConst.type.getUsedConstants.forM addWorklist
     else
       if challengeConst != solutionConst then
-        throw s!"Const does not match between challenge and target '{target}'"
-      addRelevantConsts solutionConst
+        if challengeConst.toConstantVal == solutionConst.toConstantVal
+            && hasSorryAxValue challengeConst then
+          solutionConst.type.getUsedConstants.forM addWorklist
+        else
+          throw s!"Const does not match between challenge and target '{target}'"
+      else
+        addRelevantConsts solutionConst
 
     modify fun s => { s with checked := s.checked.insert target }
     loop
