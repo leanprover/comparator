@@ -137,6 +137,30 @@ def large : Nat := 38
 theorem large_lt : 37 < large := by decide
 ```
 
+## Structured results
+
+`comparator config.json --result-json /trusted-output/result.json` writes a version 1
+JSON result and preserves success/failure exit behavior. The output path must be new
+and outside all paths writable by project code. Existing files are never overwritten.
+Normal log output remains on stdout/stderr.
+
+The result contains `schemaVersion`, `outcome`, `stage`, `reason`, `detail`, the parsed
+`config` and `leanVersion`. `outcome` is:
+
+- `pass`: target comparison, axiom policy and all configured kernels succeeded.
+- `rejected`: target mismatch, disallowed axiom or an explicit builtin-kernel rejection.
+- `error`: configuration, build, export, parse, process or external-kernel failure.
+
+Stages identify where execution stopped. External kernels lack a common rejection
+protocol, so their nonzero exits remain errors; callers must not classify their logs.
+A timeout, killed process, empty/missing/malformed result, or disagreement with the
+exit status is an execution error. Only a complete `pass` with exit zero is acceptance.
+
+This record is not an authenticated receipt. The trusted caller must bind it to the
+exact challenge, submission, dependencies, executable digests, effective environment
+(including kernel overrides), containment policy and run identity. JSON output does
+not change Comparator's trust or sandbox requirements above.
+
 ## Development
 
 The `scripts/fake-landrun.sh` can be used to replace Landrun in development if you are not on a Linux system that supports landrun.
