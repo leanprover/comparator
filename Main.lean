@@ -163,6 +163,12 @@ def runExternalKernel (kernelName : String) (kernelCommand : Array String)
       ("unpermitted_axiom_hard_error", true),
       ("nat_extension", true),
       ("string_extension", true),
+      -- Local patch: nanoda defaults num_threads to 0, which takes its serial
+      -- branch (nanoda_lib src/tc.rs:181). Its parallel path is a shared work
+      -- queue over ALL declarations running the identical check_declar, so
+      -- this changes scheduling only -- not which declarations are checked,
+      -- nor how strictly, nor the axiom allowlist above.
+      ("num_threads", (88 : Nat)),
     ]
     configHandle.flush
 
