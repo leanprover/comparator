@@ -1,11 +1,11 @@
-{"version": "1.2.0",
+{"version": "1.3.0",
  "packagesDir": ".lake/packages",
  "packages":
  [{"url": "https://github.com/leanprover/lean4export",
    "type": "git",
    "subDir": null,
    "scope": "leanprover",
-   "rev": "6cea97789dc088ea47fcea15692db85685aedac5",
+   "rev": "66f1fb4bc256072069767fce52d39480e4524869",
    "name": "lean4export",
    "manifestFile": "lake-manifest.json",
    "inputRev": "master",
