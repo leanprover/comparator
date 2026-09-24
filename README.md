@@ -85,6 +85,27 @@ moves toward having an option to receive the input file as a `CLI` argument.
 
 For development purposes, comparator supports overriding `nanoda` specifically using the
 `COMPARATOR_NANODA` environment variable.
+
+## Refusing to Run Without an Enforced Landlock Sandbox
+
+Comparator invokes Landrun with `--best-effort` so that the installed Landrun can use the best
+Landlock ABI available on the running kernel. This also means Landrun may run without applying a
+policy when Landlock is unavailable. That remains the backwards-compatible default.
+
+Set `"fail_closed": true` in the configuration when silently running without filesystem sandboxing
+is unacceptable. Before starting any workload command, Comparator then runs its own executable
+through Landrun and verifies that the normal Comparator policy denies a write to a file which is
+writable outside the sandbox. If Landlock is unavailable or disabled, Landrun is missing, or a no-op
+Landrun shim is configured, Comparator exits with an error ending in:
+
+```
+fail_closed is enabled, so no workload command was started
+```
+
+This is an end-to-end check for basic filesystem enforcement, not a check for a particular Landlock
+ABI or every access right. Landrun and the kernel remain trusted to enforce the requested policy.
+The default is `false`.
+
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
 simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
