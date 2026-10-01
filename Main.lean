@@ -21,6 +21,7 @@ structure Context where
   whichLandrun : String
   whichLean4Export : String
   externalKernels : (Std.TreeMap String (Array String))
+  leanKernel : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -35,6 +36,9 @@ structure LandrunArgs where
 
 @[inline]
 def getExternalKernels : M (Std.TreeMap String (Array String)) := do return (← read).externalKernels
+
+@[inline]
+def getLeanKernel : M Bool := do return (← read).leanKernel
 
 @[inline]
 def getTheoremNames : M (Array Lean.Name) := do return (← read).theoremNames
@@ -297,7 +301,8 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let mut result := none
   for (kernelName, kernelCommand) in ← getExternalKernels do
     result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport)
-  result := result <|> (← runBuiltinKernel solution)
+  if ← getLeanKernel then
+    result := result <|> (← runBuiltinKernel solution)
   if let some error := result then
     throw <| IO.userError error
 
@@ -325,6 +330,7 @@ structure Config where
   permitted_axioms : Array String
   enable_nanoda? : Option Bool
   external_kernels? : Option (Std.TreeMap String (Array String))
+  lean_kernel? : Option Bool
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -350,6 +356,10 @@ def M.run (x : M α) (cfg : Config) : IO α := do
   else if let some nanodaOverride := nanodaOverride? then
     externalKernels := externalKernels.modify "nanoda" fun cmd => cmd.set! 0 nanodaOverride
 
+  let leanKernel := cfg.lean_kernel?.getD true
+  if !leanKernel && externalKernels.isEmpty then
+    throw <| .userError "lean_kernel is false and no external kernel is set: nothing would check the solution."
+
   ReaderT.run x {
     projectDir := cwd
     challengeModule := cfg.challenge_module.toName,
@@ -362,6 +372,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     whichLean4Export := whichLean4Export,
     whichLandrun := whichLandrun,
     externalKernels := externalKernels
+    leanKernel := leanKernel
   }
 
 end Comparator

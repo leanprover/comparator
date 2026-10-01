@@ -85,6 +85,12 @@ moves toward having an option to receive the input file as a `CLI` argument.
 
 For development purposes, comparator supports overriding `nanoda` specifically using the
 `COMPARATOR_NANODA` environment variable.
+
+Setting `lean_kernel: false` skips the replay of the solution in the Lean kernel inside comparator
+and leaves the check of the proofs to the external kernels; it is an error when no external kernel
+is set. The statement comparison and the axiom check run as before. This is meant for solutions
+whose build has already run the Lean kernel on every declaration and which are large enough that a
+second replay matters.
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
 simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
