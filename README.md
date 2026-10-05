@@ -1,5 +1,89 @@
 # Comparator
-Comparator is a trustworthy judge for Lean proofs. It relies on having an existing Lean installation as
+
+Comparator is the community gold standard to judge whether Lean proofs actually prove
+what they claim to prove.
+
+Lean is a powerful programming language as well as a theorem prover. Users can modify everything
+from the meaning of definitions and notations to injecting declarations
+in the Lean environment itself through metaprogramming.
+This flexibility makes Lean unsuited to guarantee correctness of adversarial proof developments
+without additional steps. Comparator is one such additional step.
+See the Limitations section below for other such steps.
+
+## How Comparator Works
+
+Comparator compares two files:
+* a "challenge" file, containing the claimed propositions, unproven,
+  and containing or importing the definitions needed to state them;
+* a "solution" file, containing or importing the same declarations with the same names
+  (this is important), but this time the declarations have proofs.
+
+To compare these two files, Comparator builds them (in the sense of generating the corresponding
+`.olean` files) and checks that all the declarations appearing in the challenge file are
+bit-identical (in the sense of their `.olean` representations being identical) to the eponymous
+declarations in the solution file. Since any definition, notation or environment trickery
+in the solution file cannot influence the challenge file, Comparator will catch it.
+
+## How to Set Up Comparator on Your Lean Project
+
+To enable other parties to check your project with Comparator,
+1. Decide what the end statements of your project are.
+2. Create a `Challenge.lean` file containing a copy of the end statements as well as of the
+  definitions from your project that appear in said statements.
+3. Create a `Solution.lean` file containing/importing the proofs. You can simply make it import your
+  whole project.
+4. Create a `comparator.json` file containing
+  ```
+  {
+      "challenge_module": "Challenge",
+      "solution_module": "Solution",
+      "theorem_names": ["your_theorem_name_here", "your_second_theorem_name_here"],
+      "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
+  }
+  ```
+
+The challenge file should import as few files and contain as few new definitions as possible to stay
+credible. Consider whether upstreaming the definitions from your project to a community-maintained
+repository (such as Mathlib for mathematical projects) could increase trust from other parties that
+your definitions are correct.
+The solution file however can import any amount of Lean code without decreasing trust.
+
+The challenge, solution and `.json` files can be anywhere in your project, e.g. part of the
+main Lean library or in a separate one. Our only recommendations are that you make the challenge
+and solution files default targets of your Lean project, and that you do not claim generic Lean
+library names like `Challenge`, `Solution`, `Audit` or `Palomar`.
+The names of the three files can be customised arbitrarily, as can the list of allowed axioms.
+
+For convenience, a projecr can have several pairs of challenge-solution files.
+Simply create one `.json` file per challenge-solution pair.
+
+## Limitations
+
+Comparator is only intended to check that two olean files contain some set of byte-identical
+objects. **It is by design feature-complete**.
+Having said this, here are the known ways to fool Comparator, all of which you can guard against
+by taking additional steps, e.g. with other tools:
+1. Just as Lean is a *theorem prover*, not a *definition checker*, Comparator does not check that
+  the definitions present/used in the challenge file agree with their informal descriptions.
+  To guard against this, you should know enough Lean to read the definitions yourself,
+  or trust the libraries that provide the definitions.
+2. Similarly, Comparator does not check that the theorem statements present in the challenge file
+  correspond to their informal descriptions. Like point 1, this can be guarded against by manual
+  inspection. It can also be guarded by registering the project
+  on the [Palomar registry](https://palomar-registry.org/), which has some automated checks
+  for semantic alignment.
+3. Running Comparator requires trusting various parts of the hardware/operating system
+  it is running on, as well as some parts of the Lean ecosystem depending on exactly how you run it.
+  See Technical explanations below for details.
+
+## Acknowledgement
+
+Comparator was originally developed by Lean FRO, with feedback from the AIMO team, in support of the
+AIMO series of competitions and their goal of enabling trustworthy LLM Lean evaluation on Kaggle.
+
+## Technical explanations
+
+It relies on having an existing Lean installation as
 well as:
 1. [`landrun`](https://github.com/Zouuup/landrun), compiled from the `main` branch's source, present in `PATH`
 2. [`lean4export`](https://github.com/leanprover/lean4export/), at a version that is compatible with whatever Lean version your project is targeting, present in `PATH`
@@ -60,7 +144,7 @@ Furthermore, it is possible to avoid trusting `landrun`'s ability to sandbox the
 if you have obtained a fully pre-built `.lake` directory through other means and without compromising your
 checking environment, `Solution.lean` will not be rebuilt.
 
-## Checking with Additional Kernels
+### Checking with Additional Kernels
 Comparator can additionally check solutions with external kernels. To do this you must register them
 in the `external_kernels` list:
 ```
@@ -85,7 +169,7 @@ moves toward having an option to receive the input file as a `CLI` argument.
 
 For development purposes, comparator supports overriding `nanoda` specifically using the
 `COMPARATOR_NANODA` environment variable.
-## Definition Holes
+### Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
 simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
 false, all the way to constructing complex mathematical objects. For these types of solutions,
@@ -137,7 +221,7 @@ def large : Nat := 38
 theorem large_lt : 37 < large := by decide
 ```
 
-## Development
+### Development
 
 The `scripts/fake-landrun.sh` can be used to replace Landrun in development if you are not on a Linux system that supports landrun.
 
@@ -171,7 +255,7 @@ COMPARATOR_LANDRUN=$(realpath scripts/fake-landrun.sh) COMPARATOR_LEAN4EXPORT=$(
 
 Replace the `landrun` and `lean4export` arguments as needed, or place the binaries in `PATH`.
 
-## Internals
+### Internals
 We generally adopt a policy of not loading olean files as they just get mmaped into our address
 space and then dereferenced and are as such a potential point of attack for sophisticated adversaries.
 
@@ -196,7 +280,3 @@ The comparator performs the following steps to ensure these properties:
 Note that as `Challenge` is trusted, both the sandbox and lean4export step for `Challenge` are not
 necessary to the best of our knowledge. We still adopt these rather free measures as additional
 paranoia in case an adversary comes up with a means of attack anyway.
-
-## Acknowledgement
-Comparator was originally developed by Lean FRO, with feedback from the AIMO team, in support of the
-AIMO series of competitions and their goal of enabling trustworthy LLM Lean evaluation on Kaggle.
