@@ -85,6 +85,14 @@ moves toward having an option to receive the input file as a `CLI` argument.
 
 For development purposes, comparator supports overriding `nanoda` specifically using the
 `COMPARATOR_NANODA` environment variable.
+## Parallel Kernel Replay
+For very large solutions the replay through the Lean kernel dominates the run time, because it checks
+every declaration one at a time. Setting `"parallel_replay": true` in the configuration makes comparator
+check theorems in parallel tasks on Lean's task pool (`LEAN_NUM_THREADS` sets the number of workers).
+Definitions, inductive types and all other declarations are still checked in order on one thread. Every
+theorem is checked by the same kernel call, against the same environment, as in the default sequential
+replay, and comparator waits for all theorem checks before accepting the solution. The default is `false`.
+
 ## Definition Holes
 Sometimes challenges want to leave open definitions for solutions to fill in. This can range from
 simple things like filling in a `Prop` valued definition to resolve whether a conjecture is true or
