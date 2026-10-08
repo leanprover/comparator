@@ -13,15 +13,47 @@ import Lean.Util.FoldConsts
 # `Lean.Kernel.Environment.replayParallel`
 
 `replayConstant`, `replayConstants` and `replay` in namespace `Lean.Kernel.Environment.Replay.Parallel` below are
-verbatim copies of the same definitions in `src/Lean/Replay.lean` (identical in Lean v4.35.0-rc3, v4.35.0-rc4 and
-master). Everything they use from there (`Context`, `State`, `isTodo`, `throwKernelException`, `addDecl` and the
+copies of the same definitions in `src/Lean/Replay.lean` (identical in Lean v4.35.0-rc3, v4.35.0-rc4 and master).
+Everything they use from there (`Context`, `State`, `isTodo`, `throwKernelException`, `addDecl` and the
 postponed constructor and recursor checks) is imported from `Lean.Replay`, with `import all` because those
-definitions are not public.
+definitions are not public. The copies differ from Lean's only in:
+
+* the `.thmInfo` case of `replayConstant` calls `addThmAsync` instead of `addDecl`: the theorem is added with
+  `addDeclWithoutChecking`, and checked by the same kernel call (`addDeclCore`) against the environment as it was
+  just before it, in a separate task;
+* the reader context `Context` extends `Replay.Context` with the list of these tasks;
+* `replay` creates that list, and waits for all tasks before the postponed constructor and recursor checks,
+  failing if any task failed.
+
+So every declaration is checked by the same kernel call against the same environment as in `replay`; only the
+order in which theorems are checked differs.
 -/
 
 namespace Lean.Kernel.Environment.Replay.Parallel
 
-abbrev M := Replay.M
+/-- `Replay.Context`, plus the kernel checks of theorems running in parallel (see `addThmAsync`). -/
+structure Context extends Replay.Context where
+  tasks : IO.Ref (Array (Name × Task (Except Kernel.Exception Kernel.Environment)))
+
+abbrev M := ReaderT Context <| StateRefT State IO
+
+/-- The helpers of `Lean.Replay` (`isTodo`, `addDecl`, ...) run unchanged in `M`. -/
+instance : MonadLift Replay.M M where
+  monadLift x := fun ctx => x.run ctx.toContext
+
+/--
+Add a theorem to the environment without checking it, and spawn a task that checks it with the kernel
+against the environment as it was before the theorem was added.
+-/
+def addThmAsync (info : TheoremVal) : M Unit := do
+  let kenv := (← get).env
+  let decl := Declaration.thmDecl info
+  match kenv.addDeclWithoutChecking decl with
+  | .ok env =>
+    let t := Task.spawn fun () => kenv.addDeclCore 0 0 decl (cancelTk? := none)
+    modify fun s => { s with env := env }
+    (← read).tasks.modify (·.push (info.name, t))
+  | .error ex => throwKernelException ex
 
 mutual
 /--
@@ -56,7 +88,7 @@ partial def replayConstant (name : Name) : M Unit := do
               info.all == info'.all
             then
               return
-          addDecl (Declaration.thmDecl    info)
+          addThmAsync info
         | .axiomInfo  info =>
           addDecl (Declaration.axiomDecl  info)
         | .opaqueInfo info =>
@@ -117,10 +149,16 @@ public def replay (newConstants : Std.HashMap Name ConstantInfo) (env : Kernel.E
     -- Later we may want to handle partial constants.
     if !ci.isUnsafe && !ci.isPartial then
       remaining := remaining.insert n
+  let tasks ← IO.mkRef #[]
   let (_, s) ← StateRefT'.run (s := { env, remaining }) do
-    ReaderT.run (r := { newConstants }) do
+    ReaderT.run (r := { newConstants, tasks }) do
       for n in remaining do
         replayConstant n
+      -- Wait for the kernel checks of all theorems; any failure fails the replay.
+      for (name, t) in ← tasks.get do
+        if let .error ex := t.get then
+          try throwKernelException ex
+          catch ex => throw <| .userError s!"while replaying declaration '{name}':\n{ex}"
       checkPostponedConstructors
       checkPostponedRecursors
   return s.env
