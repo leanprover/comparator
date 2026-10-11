@@ -49,6 +49,10 @@ jobs:
         working-directory: lean4export
         run: lake build
 
+      - name: Check statement mismatch diagnostics
+        working-directory: comparator
+        run: lake env lean tests/StatementDiagnostics.lean
+
       - name: Run comparator tests
         working-directory: comparator
         run: |

@@ -82,7 +82,11 @@ def compareAt (challenge solution : Export.ExportedEnv) (theoremTargets : Array 
       | _, _ => throw s!"Challenge and solution constant kind don't match: '{target}'"
 
     if challengeConst != solutionConst then
-      throw s!"Challenge and solution theorem statement do not match: '{target}'"
+      throw <| s!"Challenge and solution theorem statement do not match: '{target}'\n"
+        ++ s!"Challenge type: {challengeConst.type}\n"
+        ++ s!"Challenge universe parameters: {challengeConst.levelParams}\n"
+        ++ s!"Solution type: {solutionConst.type}\n"
+        ++ s!"Solution universe parameters: {solutionConst.levelParams}"
 
     worklist := worklist ++ challengeConst.type.getUsedConstants
 
