@@ -54,3 +54,13 @@ jobs:
         run: |
           export PATH="$GITHUB_WORKSPACE/nanoda/target/release:$GITHUB_WORKSPACE/lean4export/.lake/build/bin:$GITHUB_WORKSPACE/landrun:$PATH"
           lean --run runtests.lean
+
+      - name: Test sandbox environment propagation
+        working-directory: comparator
+        run: |
+          lake env bash -eu -c '
+            export LEAN_PATH="$PWD/.lake/build/lib/lean:$LEAN_PATH"
+            LEAN_NUM_THREADS=1 lean tests/SandboxEnv.lean
+            LEAN_NUM_THREADS=3 lean tests/SandboxEnv.lean
+            env -u LEAN_NUM_THREADS lean tests/SandboxEnv.lean
+          '
