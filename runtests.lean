@@ -83,40 +83,27 @@ def readTestConfig (configPath : FilePath) : IO TestConfig := do
     | .error e => throw <| IO.userError s!"Failed to decode config: {e}"
     | .ok cfg => pure cfg
 
-def getTempDir : IO FilePath := do
-  return "/tmp" / s!"lean_test_{← IO.rand 0 999999}"
-
 def runTestProject (projectPath : FilePath) (projectName : String) (testsDir : FilePath)
     (comparatorPath : FilePath) : IO TestResult := do
   try
     let configPath := projectPath / "test.json"
     let config ← readTestConfig configPath
 
-    let tempDir ← getTempDir
-    IO.FS.createDirAll tempDir
+    IO.FS.withTempDir fun tempDir => do
+      copyDirContents projectPath tempDir
 
-    copyDirContents projectPath tempDir
+      copyFile "lean-toolchain" (tempDir / "lean-toolchain")
 
-    copyFile "lean-toolchain" (tempDir / "lean-toolchain")
+      createAdditionalFiles tempDir
 
-    createAdditionalFiles tempDir
+      let exitCode ← runCommandInDir tempDir "lake" #["env", comparatorPath.toString, "config.json"]
 
-    let exitCode ← runCommandInDir tempDir "lake" #["env", comparatorPath.toString, "config.json"]
-
-    IO.FS.removeDirAll tempDir
-
-    if exitCode == config.exit_code then
-      return TestResult.success projectName
-    else
-      return TestResult.failure projectName config.exit_code exitCode
+      if exitCode == config.exit_code then
+        return TestResult.success projectName
+      else
+        return TestResult.failure projectName config.exit_code exitCode
 
   catch e =>
-    try
-      let tempDir ← getTempDir
-      if (← tempDir.pathExists) then
-        IO.FS.removeDirAll tempDir
-    catch _ =>
-      pure ()
     return TestResult.error projectName e.toString
 
 def findProjects (testsDir : FilePath) : IO (Array FilePath) := do

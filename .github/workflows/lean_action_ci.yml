@@ -49,6 +49,12 @@ jobs:
         working-directory: lean4export
         run: lake build
 
+      - name: Run test runner regression tests
+        working-directory: comparator
+        run: |
+          lake env lean -o .lake/build/lib/lean/runtests.olean runtests.lean
+          lake env lean tests/RunnerTempDir.lean
+
       - name: Run comparator tests
         working-directory: comparator
         run: |
