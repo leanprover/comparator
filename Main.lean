@@ -124,7 +124,7 @@ def safeLakeBuild (target : Lean.Name) : M Unit := do
   runSandBoxed {
     cmd := "lake",
     args := #["build", target.toString],
-    envPass := #["PATH", "HOME", "LEAN_ABORT_ON_PANIC"]
+    envPass := #["PATH", "HOME", "LEAN_ABORT_ON_PANIC", "LEAN_NUM_THREADS"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
     readablePaths := #[projectDir]
     writablePaths := #[dotLakeDir]
@@ -142,7 +142,7 @@ def safeExport (module : Lean.Name) (decls : Array Lean.Name) : M String := do
   runSandBoxedWithStdout {
     cmd := (← read).whichLean4Export
     args := args,
-    envPass := #["PATH", "HOME", "LEAN_PATH", "LEAN_ABORT_ON_PANIC"]
+    envPass := #["PATH", "HOME", "LEAN_PATH", "LEAN_ABORT_ON_PANIC", "LEAN_NUM_THREADS"]
     envOverride := #[("LEAN_ABORT_ON_PANIC", some "1")]
     readablePaths := #[projectDir, dotLakeDir]
     writablePaths := #[]
