@@ -21,6 +21,7 @@ structure Context where
   whichLandrun : String
   whichLean4Export : String
   externalKernels : (Std.TreeMap String (Array String))
+  parallelReplay : Bool
 
 abbrev M := ReaderT Context IO
 
@@ -219,7 +220,11 @@ def runBuiltinKernel (solution : Export.ExportedEnv) : M (Option String) := do
   let quotTargets := [`Quot.mk, `Quot.lift, `Quot.ind]
   let kernelConstMap := quotTargets.foldl (init := origConstMap) (·.erase ·)
   try
-    kernelEnv ← kernelEnv.replay kernelConstMap
+    if (← read).parallelReplay then
+      IO.println "Using parallel replay: theorems are checked by the kernel in parallel tasks."
+      kernelEnv ← kernelEnv.replayParallel kernelConstMap
+    else
+      kernelEnv ← kernelEnv.replay kernelConstMap
     IO.println "Lean default kernel accepts the solution"
   catch e =>
     IO.println "Lean default kernel rejects the solution"
@@ -325,6 +330,7 @@ structure Config where
   permitted_axioms : Array String
   enable_nanoda? : Option Bool
   external_kernels? : Option (Std.TreeMap String (Array String))
+  parallel_replay? : Option Bool
   deriving Lean.FromJson, Lean.ToJson, Repr
 
 def M.run (x : M α) (cfg : Config) : IO α := do
@@ -361,7 +367,8 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     gitLocation := gitLocation,
     whichLean4Export := whichLean4Export,
     whichLandrun := whichLandrun,
-    externalKernels := externalKernels
+    externalKernels := externalKernels,
+    parallelReplay := cfg.parallel_replay?.getD false
   }
 
 end Comparator

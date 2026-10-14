@@ -54,3 +54,7 @@ jobs:
         run: |
           export PATH="$GITHUB_WORKSPACE/nanoda/target/release:$GITHUB_WORKSPACE/lean4export/.lake/build/bin:$GITHUB_WORKSPACE/landrun:$PATH"
           lean --run runtests.lean
+
+      - name: Run parallel replay kernel tests
+        working-directory: comparator
+        run: lake env lean --run tests/ParallelReplayUnit.lean
