@@ -1,4 +1,10 @@
 # Comparator
+## Deprecation
+This project has been merged into core as of Lean release v4.35.0 in the form of `lake comparator`
+and the accompanying `lake check`. Users are advised to migrate their validations setups to these
+tools as they are the only ones guaranteed to receive further security and performance improvements.
+
+## Introduction
 Comparator is a trustworthy judge for Lean proofs. It relies on having an existing Lean installation as
 well as:
 1. [`landrun`](https://github.com/Zouuup/landrun), compiled from the `main` branch's source, present in `PATH`
