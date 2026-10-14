@@ -25,4 +25,19 @@ def runForUsedConsts [Monad m] (info : Lean.ConstantInfo) (f : Lean.Name → m U
       f rule.ctor
       rule.rhs.getUsedConstants.forM f
 
+/--
+The names in `constMap` that `roots` depend on, transitively and including `roots` themselves.
+-/
+partial def dependencyClosure (constMap : Std.HashMap Lean.Name Lean.ConstantInfo)
+    (roots : Array Lean.Name) : Lean.NameSet :=
+  (roots.forM visit).run {} |>.snd
+where
+  visit (n : Lean.Name) : StateM Lean.NameSet Unit := do
+    if (← get).contains n then return
+    let some info := constMap[n]? | return
+    modify (·.insert n)
+    runForUsedConsts info visit
+    -- The kernel needs `Eq` to add `Quot`, without `Quot` mentioning it.
+    if info matches .quotInfo .. then visit ``Eq
+
 end Comparator

@@ -209,7 +209,8 @@ where
     -- TODO: get rid of this heuristic
     kernelName.contains "noda"
 
-def runBuiltinKernel (solution : Export.ExportedEnv) : M (Option String) := do
+def runBuiltinKernel (solution : Export.ExportedEnv) (primitives : Array Lean.Name) :
+    M (Option String) := do
   IO.println "Running Lean default kernel on solution."
   let env ← Lean.mkEmptyEnvironment
   let mut kernelEnv := env.toKernelEnv
@@ -218,8 +219,15 @@ def runBuiltinKernel (solution : Export.ExportedEnv) : M (Option String) := do
   -- multiple times leads to errors.
   let quotTargets := [`Quot.mk, `Quot.lift, `Quot.ind]
   let kernelConstMap := quotTargets.foldl (init := origConstMap) (·.erase ·)
+  -- The kernel can use primitives that no declaration mentions, e.g. it unfolds a string literal
+  -- to `String.ofList [Char.ofNat ..]`. `replay` only orders by mentioned constants, so add the
+  -- primitives and their dependencies first.
+  let primitiveClosure := dependencyClosure kernelConstMap primitives
+  let primitiveConstMap := kernelConstMap.filter fun n _ => primitiveClosure.contains n
+  let restConstMap := kernelConstMap.filter fun n _ => !primitiveClosure.contains n
   try
-    kernelEnv ← kernelEnv.replay kernelConstMap
+    kernelEnv ← kernelEnv.replay primitiveConstMap
+    kernelEnv ← kernelEnv.replay restConstMap
     IO.println "Lean default kernel accepts the solution"
   catch e =>
     IO.println "Lean default kernel rejects the solution"
@@ -297,7 +305,7 @@ def verifyMatch (challengeExport : String) (solutionExport : String) :
   let mut result := none
   for (kernelName, kernelCommand) in ← getExternalKernels do
     result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport)
-  result := result <|> (← runBuiltinKernel solution)
+  result := result <|> (← runBuiltinKernel solution (← primitiveTargets))
   if let some error := result then
     throw <| IO.userError error
 
