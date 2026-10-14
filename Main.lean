@@ -9,7 +9,19 @@ import Export.Parse
 
 namespace Comparator
 
+/-- Optional machine result. An absent result never establishes acceptance. -/
+structure VerificationResult where
+  schemaVersion : Nat := 1
+  outcome : String := "error"
+  stage : String := "configuration"
+  reason : String := "execution_error"
+  detail : String := ""
+  config : Lean.Json := .null
+  leanVersion : String := Lean.versionString
+  deriving Lean.ToJson
+
 structure Context where
+  result : Option (IO.Ref VerificationResult) := none
   projectDir : System.FilePath
   challengeModule : Lean.Name
   solutionModule : Lean.Name
@@ -23,6 +35,15 @@ structure Context where
   externalKernels : (Std.TreeMap String (Array String))
 
 abbrev M := ReaderT Context IO
+
+def setStage (stage : String) : M Unit := do
+  if let some result := (← read).result then
+    result.modify fun r => { r with stage }
+
+def reject (reason detail : String) : M Unit := do
+  if let some result := (← read).result then
+    result.modify fun r => { r with outcome := "rejected", reason, detail }
+  throw <| IO.userError detail
 
 structure LandrunArgs where
   cmd : String
@@ -287,30 +308,45 @@ def stringStream (s : String) : BaseIO IO.FS.Stream := do
 
 def verifyMatch (challengeExport : String) (solutionExport : String) :
     M Unit := do
+  setStage "parse_exports"
   let challenge ← Export.parseStream (← stringStream challengeExport)
   let solution ← Export.parseStream (← stringStream solutionExport)
   let theoremNames ← getTheoremNames
   let definitionNames ← getDefinitionNames
   let targets := (← getTheoremNames) ++ (← getLegalAxioms)
-  IO.ofExcept <| Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets)
-  IO.ofExcept <| Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms)
-  let mut result := none
+  setStage "target_comparison"
+  if let .error error := Comparator.compareAt challenge solution targets definitionNames (← primitiveTargets) then
+    reject "target_mismatch" error
+  setStage "axiom_policy"
+  if let .error error := Comparator.checkAxioms solution theoremNames definitionNames (← getLegalAxioms) then
+    reject "disallowed_axiom" error
+  -- External kernels have no shared rejection protocol. A nonzero exit is an error.
+  let mut externalError := none
+  setStage "external_kernels"
   for (kernelName, kernelCommand) in ← getExternalKernels do
-    result := result <|> (← runExternalKernel kernelName kernelCommand solutionExport)
-  result := result <|> (← runBuiltinKernel solution)
-  if let some error := result then
+    externalError := externalError <|> (← runExternalKernel kernelName kernelCommand solutionExport)
+  setStage "lean_kernel"
+  let builtinError ← runBuiltinKernel solution
+  if let some error := externalError then
+    setStage "external_kernels"
     throw <| IO.userError error
+  if let some error := builtinError then
+    reject "kernel_rejected" error
 
 def compareIt : M Unit := do
   let exportTargets := (← builtinTargets) ++ (← getTheoremNames) ++ (← getLegalAxioms)
     ++ (← primitiveTargets) ++ (← getDefinitionNames)
 
   let challengeModule ← getChallengeModule
+  setStage "challenge_build"
   safeLakeBuild challengeModule
+  setStage "challenge_export"
   let challengeExport ← safeExport challengeModule exportTargets
 
   let solutionModule ← getSolutionModule
+  setStage "solution_build"
   safeLakeBuild solutionModule
+  setStage "solution_export"
   let solutionExport ← safeExport solutionModule exportTargets
 
   verifyMatch challengeExport solutionExport
@@ -327,7 +363,7 @@ structure Config where
   external_kernels? : Option (Std.TreeMap String (Array String))
   deriving Lean.FromJson, Lean.ToJson, Repr
 
-def M.run (x : M α) (cfg : Config) : IO α := do
+def M.run (x : M α) (cfg : Config) (result : Option (IO.Ref VerificationResult) := none) : IO α := do
   let cwd ← IO.Process.getCurrentDir
   let leanPrefix ← queryLeanPrefix cwd
   let gitLocation ← queryGitLocation
@@ -351,6 +387,7 @@ def M.run (x : M α) (cfg : Config) : IO α := do
     externalKernels := externalKernels.modify "nanoda" fun cmd => cmd.set! 0 nanodaOverride
 
   ReaderT.run x {
+    result := result
     projectDir := cwd
     challengeModule := cfg.challenge_module.toName,
     solutionModule := cfg.solution_module.toName,
@@ -367,8 +404,25 @@ def M.run (x : M α) (cfg : Config) : IO α := do
 end Comparator
 
 def main (args : List String) : IO Unit := do
-  let some (configPath : String) := args[0]?
-    | throw <| .userError "Expected config file path as first argument."
-  let content ← IO.FS.readFile configPath
-  let config ← IO.ofExcept <| Lean.FromJson.fromJson? <| ← IO.ofExcept <| Lean.Json.parse content
-  Comparator.M.run Comparator.compareIt config
+  let (configPath, resultPath) ← match args with
+    | [config] => pure (config, none)
+    | [config, "--result-json", path] => pure (config, some path)
+    | _ => throw <| IO.userError "usage: comparator config.json [--result-json result.json]"
+  -- Reserve a new file before running project code. Keep it outside project-writable paths.
+  let output ← resultPath.mapM fun path => IO.FS.Handle.mk path .writeNew
+  let result ← IO.mkRef ({} : Comparator.VerificationResult)
+  let failure ← try
+    let content ← IO.FS.readFile configPath
+    let config : Comparator.Config ← IO.ofExcept <| Lean.FromJson.fromJson? <| ← IO.ofExcept <| Lean.Json.parse content
+    result.modify fun r => { r with config := Lean.toJson config }
+    Comparator.M.run Comparator.compareIt config (some result)
+    result.modify fun r => { r with outcome := "pass", stage := "complete", reason := "verified" }
+    pure none
+  catch error =>
+    result.modify fun r => { r with detail := error.toString }
+    pure (some error)
+  if let some handle := output then
+    handle.putStr ((Lean.toJson (← result.get)).compress ++ "\n")
+    handle.flush
+  if let some error := failure then
+    throw error
